@@ -18,6 +18,9 @@
 %%%
 %%%----------------------------------------------------------------------
 
+-ifndef(EJABBERD_JLIB_HRL).
+-define(EJABBERD_JLIB_HRL, true).
+
 -include("ns.hrl").
 -ifdef(NO_EXT_LIB).
 -include("xml.hrl").
@@ -503,3 +506,5 @@
                      children = [] :: [{xmlcdata, iodata()} | xmlelement()]}).
 
 -type xmlelement() :: #xmlelement{}.
+
+-endif.

@@ -52,8 +52,8 @@
 
 -include("ejabberd.hrl").
 -include("logger.hrl").
-
 -include("jlib.hrl").
+-include("ejabberd_hooks.hrl").
 
 -define(PROCNAME, ejabberd_mod_caps).
 
@@ -179,9 +179,9 @@ user_receive_packet(#jid{lserver = Server},
 user_receive_packet( _JID, _From, _To, Pkt) ->
     Pkt.
 
--spec caps_stream_features([xmlel()], binary()) -> [xmlel()].
+-spec caps_stream_features(c2s_stream_features(), #c2s_stream_features{}) -> c2s_stream_features().
 
-caps_stream_features(Acc, MyHost) ->
+caps_stream_features(Acc, #c2s_stream_features{host = MyHost}) ->
     case make_my_disco_hash(MyHost) of
       <<"">> -> Acc;
       Hash ->
