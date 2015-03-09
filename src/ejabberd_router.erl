@@ -49,8 +49,8 @@
 
 -include("ejabberd.hrl").
 -include("logger.hrl").
-
 -include("jlib.hrl").
+-include("ejabberd_hooks.hrl").
 
 -type local_hint() :: undefined | integer() | {apply, atom(), atom()}.
 
@@ -322,9 +322,7 @@ do_route(OrigFrom, OrigTo, OrigPacket) ->
     ?DEBUG("route~n\tfrom ~p~n\tto ~p~n\tpacket "
 	   "~p~n",
 	   [OrigFrom, OrigTo, OrigPacket]),
-    case ejabberd_hooks:run_fold(filter_packet,
-				 {OrigFrom, OrigTo, OrigPacket}, [])
-	of
+    case ejabberd_hooks_core:filter_packet({OrigFrom, OrigTo, OrigPacket}, #filter_packet{}) of
       {From, To, Packet} ->
 	  LDstDomain = To#jid.lserver,
 	  case mnesia:dirty_read(route, LDstDomain) of

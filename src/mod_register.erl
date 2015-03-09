@@ -36,8 +36,8 @@
 
 -include("ejabberd.hrl").
 -include("logger.hrl").
-
 -include("jlib.hrl").
+-include("ejabberd_hooks.hrl").
 
 start(Host, Opts) ->
     IQDisc = gen_mod:get_opt(iqdisc, Opts, fun gen_iq_handler:check_type/1,
@@ -67,7 +67,9 @@ stop(Host) ->
     gen_iq_handler:remove_iq_handler(ejabberd_sm, Host,
 				     ?NS_REGISTER).
 
-stream_feature_register(Acc, _Host) ->
+-spec stream_feature_register(c2s_stream_features(), #c2s_stream_features{}) -> c2s_stream_features().
+
+stream_feature_register(Acc, #c2s_stream_features{host = _Host}) ->
     [#xmlel{name = <<"register">>,
 	    attrs = [{<<"xmlns">>, ?NS_FEATURE_IQREGISTER}],
 	    children = []}

@@ -143,14 +143,14 @@ delete_all_hooks() ->
 get_handlers(Hookname, Host) ->
     gen_server:call(ejabberd_hooks, {get_handlers, Hookname, Host}).
 
--spec run(atom(), list()) -> ok.
+-spec run(atom(), list()|tuple()) -> ok.
 
 %% @doc Run the calls of this hook in order, don't care about function results.
 %% If a call returns stop, no more calls are performed.
 run(Hook, Args) ->
     run(Hook, global, Args).
 
--spec run(atom(), binary() | global, list()) -> ok.
+-spec run(atom(), binary() | global, list()|tuple()) -> ok.
 
 run(Hook, Host, Args) ->
     case ets:lookup(hooks, {Hook, Host}) of
@@ -160,7 +160,7 @@ run(Hook, Host, Args) ->
 	    ok
     end.
 
--spec run_fold(atom(), any(), list()) -> any().
+-spec run_fold(atom(), any(), list()|tuple()) -> any().
 
 %% @doc Run the calls of this hook in order.
 %% The arguments passed to the function are: [Val | Args].
@@ -170,7 +170,7 @@ run(Hook, Host, Args) ->
 run_fold(Hook, Val, Args) ->
     run_fold(Hook, global, Val, Args).
 
--spec run_fold(atom(), binary() | global, any(), list()) -> any().
+-spec run_fold(atom(), binary() | global, any(), list()|tuple()) -> any().
 
 run_fold(Hook, Host, Val, Args) ->
     case ets:lookup(hooks, {Hook, Host}) of
@@ -302,7 +302,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%----------------------------------------------------------------------
 
--spec run1([local_hook()|distributed_hook()], atom(), list()) -> ok.
+-spec run1([local_hook()|distributed_hook()], atom(), list() | tuple()) -> ok.
 
 run1([], _Hook, _Args) ->
     ok;
@@ -340,11 +340,12 @@ run1([{_Seq, Module, Function} | Ls], Hook, Args) ->
 	    run1(Ls, Hook, Args)
     end.
 
+-spec run_fold1([local_hook()|distributed_hook()], atom(), any(), list() | tuple()) -> any().
 
 run_fold1([], _Hook, Val, _Args) ->
     Val;
 run_fold1([{_Seq, Node, Module, Function} | Ls], Hook, Val, Args) ->
-    case rpc:call(Node, Module, Function, [Val | Args], ?TIMEOUT_DISTRIBUTED_HOOK) of
+    case rpc:call(Node, Module, Function, format_args(Val, Args), ?TIMEOUT_DISTRIBUTED_HOOK) of
 	{badrpc, Reason} ->
 	    ?ERROR_MSG("Bad RPC error to ~p: ~p~nrunning hook: ~p",
 		       [Node, Reason, {Hook, Args}]),
@@ -365,7 +366,7 @@ run_fold1([{_Seq, Node, Module, Function} | Ls], Hook, Val, Args) ->
 	    run_fold1(Ls, Hook, NewVal, Args)
     end;
 run_fold1([{_Seq, Module, Function} | Ls], Hook, Val, Args) ->
-    Res = safe_apply(Module, Function, [Val | Args]),
+    Res = safe_apply(Module, Function, format_args(Val, Args)),
     case Res of
 	{'EXIT', Reason} ->
 	    ?ERROR_MSG("~p~nrunning hook: ~p", [Reason, {Hook, Args}]),
@@ -378,9 +379,30 @@ run_fold1([{_Seq, Module, Function} | Ls], Hook, Val, Args) ->
 	    run_fold1(Ls, Hook, NewVal, Args)
     end.
 
+%% This introduce backward compatible change for parameters (Args can be record or list)
+format_args(Val, Args) ->
+    case Args of
+        A when is_list(A)  -> [Val | Args];
+        R when is_tuple(R) -> [Val, R]
+    end.
+
 safe_apply(Module, Function, Args) ->
     if is_function(Function) ->
             catch apply(Function, Args);
        true ->
             catch apply(Module, Function, Args)
     end.
+
+%% Plan for more refactor (Can be done one hook at a time)
+%% - List run vs run_fold hooks
+%% - Change args to be record that has same name than hook
+%% - It means that when adding a hook, we can check arity of the
+%%   function if the hook is known and listed in list generated in 1
+%% Use module name to define hooks: hooks_core.erl
+%%
+%% Everything is backward compliant. Records are a convention for
+%% standard hooks for args but a list could still be provided for custom hooks.
+%% We can deprecate the list args at a later time
+%% Acc still can be of any type and thus return.
+%% Should we process the reply to trigger errorm when result of run
+%% fold hook is incorrect ?

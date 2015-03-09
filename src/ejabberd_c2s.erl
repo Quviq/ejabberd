@@ -70,8 +70,8 @@
 
 -include("ejabberd.hrl").
 -include("logger.hrl").
-
 -include("jlib.hrl").
+-include("ejabberd_hooks.hrl").
 
 -include("mod_privacy.hrl").
 
@@ -462,9 +462,9 @@ wait_for_stream({xmlstreamstart, _Name, Attrs}, StateData) ->
 						   attrs = [],
 						   children =
 						    TLSFeature ++ CompressFeature ++ Mechs
-						    ++
-						    ejabberd_hooks:run_fold(c2s_stream_features,
-							Server, [], [Server])}),
+                                                  ++
+                                                       ejabberd_hooks_core:c2s_stream_features(Server, [],
+                                                                                               #c2s_stream_features{host=Server})}),
 				    fsm_next_state(wait_for_feature_request,
 					       StateData#state{
 						 server = Server,
@@ -500,8 +500,8 @@ wait_for_stream({xmlstreamstart, _Name, Attrs}, StateData) ->
 							    StreamManagementFeature ++
 							    ejabberd_hooks:run_fold(c2s_post_auth_features,
 								Server, [], [Server]) ++
-							    ejabberd_hooks:run_fold(c2s_stream_features,
-								Server, [], [Server]),
+                                                            ejabberd_hooks_core:c2s_stream_features(Server, [],
+                                                                              #c2s_stream_features{host=Server}),
 					send_element(StateData,
 						    #xmlel{name = <<"stream:features">>,
 							    attrs = [],
@@ -1304,8 +1304,7 @@ session_established2(El, StateData) ->
 		       _ -> NewStateData
 		     end
 	       end,
-    ejabberd_hooks:run(c2s_loop_debug,
-		       [{xmlstreamelement, El}]),
+    ejabberd_hooks_core:c2s_loop_debug(#c2s_loop_debug{data={xmlstreamelement, El}}),
     fsm_next_state(session_established, NewState).
 
 wait_for_resume({xmlstreamelement, _El} = Event, StateData) ->
@@ -1390,7 +1389,7 @@ code_change(_OldVsn, StateName, StateData, _Extra) ->
 %%----------------------------------------------------------------------
 handle_info({send_text, Text}, StateName, StateData) ->
     send_text(StateData, Text),
-    ejabberd_hooks:run(c2s_loop_debug, [Text]),
+    ejabberd_hooks_core:c2s_loop_debug(#c2s_loop_debug{data=Text}),
     fsm_next_state(StateName, StateData);
 handle_info(replaced, StateName, StateData) ->
     Lang = StateData#state.lang,
@@ -1709,10 +1708,10 @@ handle_info({route, From, To,
 					  FinalPacket]),
 		      SentState
 		end,
-	    ejabberd_hooks:run(c2s_loop_debug, [{route, From, To, Packet}]),
+            ejabberd_hooks_core:c2s_loop_debug(#c2s_loop_debug{data={route, From, To, Packet}}),
 	    fsm_next_state(StateName, FinalState);
 	true ->
-	    ejabberd_hooks:run(c2s_loop_debug, [{route, From, To, Packet}]),
+            ejabberd_hooks_core:c2s_loop_debug(#c2s_loop_debug{data={route, From, To, Packet}}),
 	    fsm_next_state(StateName, NewState)
     end;
 handle_info({'DOWN', Monitor, _Type, _Object, _Info},
