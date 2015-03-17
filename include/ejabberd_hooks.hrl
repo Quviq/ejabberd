@@ -35,6 +35,8 @@
 -type hook_scope() :: global | host.
 
 -record(hook, {name  :: atom(),
+               arity :: pos_integer(),
+               handler_arity :: pos_integer(),
                type  :: hook_type(),
                scope :: hook_scope()}).
 

@@ -27,26 +27,25 @@
 
 -module(ejabberd_hooks_core).
 
--compile(export_all).
+-compile([export_all,
+          {parse_transform, ejabberd_hooks_transform}]).
+%% MR: Compile manually with:
+%% erlc -pa . -I include -I ../ejabberd-mremond/deps/p1_xml/include/ src/ejabberd_hooks_core.erl
 
 -include("ejabberd_hooks.hrl").
 
-%% jlib.hrl is needed only for type xmlel()
-%% -include("jlib.hrl").
-
-all() ->
-    [ #hook{name = filter_packet,  type = run_fold, scope = global},
-      #hook{name = c2s_loop_debug, type = run,      scope = global} ].
-
--spec get_hook_type(HookName :: atom()) -> undefined | hook_type().
-
-get_hook_type(HookName) ->
-    case lists:keyfind(HookName, 2, all()) of
-        #hook{type = Type} -> Type;
-        false -> undefined
-    end.
+%%-spec get_hook_type(HookName :: atom()) -> undefined | hook_type().
+%%
+%% get_hook_type(HookName) ->
+%%    case lists:keyfind(HookName, 2, all()) of
+%%        #hook{type = Type} -> Type;
+%%        false -> undefined
+%%        false -> undefined
+%%    end.
 
 %% ejabberd core hooks definition
+%% Important notes:
+%% - Type specs are mandatory to know if we deal with run_fold or run hook during parse_transform
 
 -spec filter_packet(filter_packet(), #filter_packet{}) -> filter_packet().
 filter_packet({_, _, _} = State, #filter_packet{} = Arg) ->
@@ -57,6 +56,9 @@ c2s_loop_debug(#c2s_loop_debug{} = Arg) ->
     ejabberd_hooks:run(c2s_loop_debug, Arg).
 
 -spec c2s_stream_features(binary(), c2s_stream_features(), #c2s_stream_features{}) -> c2s_stream_features().
-c2s_stream_features(Host, State, Arg) ->
+c2s_stream_features(Host, _State, Arg) ->
     ejabberd_hooks:run_fold(c2s_stream_features, Host, [], Arg).
 
+%% all() will be added at compile time by parse_transform
+%% It return the list of core hooks alongs with there specifications
+%% as a list of hooks records

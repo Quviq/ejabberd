@@ -38,13 +38,17 @@
 	 delete/3,
 	 delete/4,
 	 delete/5,
+         remove_module_handlers/2,
+         remove_module_handlers/3,
 	 delete_dist/5,
 	 delete_dist/6,
 	 run/2,
 	 run/3,
 	 run_fold/3,
 	 run_fold/4,
-	 get_handlers/2]).
+	 get_handlers/1,
+	 get_handlers/2,
+         get_hooks_with_handlers/0]).
 
 -export([delete_all_hooks/0]).
 
@@ -57,6 +61,7 @@
 	 terminate/2]).
 
 -include("logger.hrl").
+-include("ejabberd_hooks.hrl").
 
 %% Timeout of 5 seconds in calls to distributed hooks
 -define(TIMEOUT_DISTRIBUTED_HOOK, 5000).
@@ -77,7 +82,7 @@ start_link() ->
 add(Hook, Function, Seq) when is_function(Function) ->
     add(Hook, global, undefined, Function, Seq).
 
--spec add(atom(), HostOrModule :: binary() | atom(), fun() | atom() , number()) -> ok.
+-spec add(atom(), HostOrModule :: binary() | atom(), fun() | atom() , number()) -> ok | {error, atom()}.
 add(Hook, Host, Function, Seq) when is_function(Function) ->
     add(Hook, Host, undefined, Function, Seq);
 
@@ -103,7 +108,7 @@ add_dist(Hook, Host, Node, Module, Function, Seq) ->
 
 -spec delete(atom(), fun(), number()) -> ok.
 
-%% @doc See del/4.
+%% @doc See delete/4.
 delete(Hook, Function, Seq) when is_function(Function) ->
     delete(Hook, global, undefined, Function, Seq).
 
@@ -122,6 +127,15 @@ delete(Hook, Module, Function, Seq) ->
 delete(Hook, Host, Module, Function, Seq) ->
     gen_server:call(ejabberd_hooks, {delete, Hook, Host, Module, Function, Seq}).
 
+-spec remove_module_handlers(atom(), atom()) -> ok.
+%% @doc see remove_module_handlers/3
+remove_module_handlers(Hook, Module) ->
+    remove_module_handlers(Hook, global, Module).
+
+%% @doc Remove all handler set by module for given hook.
+remove_module_handlers(Hook, Host, Module) ->
+    gen_server:call(ejabberd_hooks, {remove_module_handlers, Hook, Host, Module}).
+
 -spec delete_dist(atom(), atom(), atom(), atom() | fun(), number()) -> ok.
 
 delete_dist(Hook, Node, Module, Function, Seq) ->
@@ -138,10 +152,21 @@ delete_dist(Hook, Host, Node, Module, Function, Seq) ->
 delete_all_hooks() ->
     gen_server:call(ejabberd_hooks, {delete_all}).
 
+-spec get_handlers(atom()) -> [local_hook() | distributed_hook()].
+
+%% @doc see get_handlers/2
+get_handlers(Hookname) ->
+    get_handlers(Hookname, global).
+
 -spec get_handlers(atom(), binary() | global) -> [local_hook() | distributed_hook()].
-%% @doc Returns currently set handler for hook name 
+%% @doc Returns currently set handlers for hook name 
 get_handlers(Hookname, Host) ->
     gen_server:call(ejabberd_hooks, {get_handlers, Hookname, Host}).
+
+-spec get_hooks_with_handlers() -> [atom()].
+
+get_hooks_with_handlers() ->
+    gen_server:call(ejabberd_hooks, {get_hooks_with_handlers}).
 
 -spec run(atom(), list()|tuple()) -> ok.
 
@@ -222,6 +247,10 @@ handle_call({delete, Hook, Host, Node, Module, Function, Seq}, _From, State) ->
     Reply = handle_delete(Hook, Host, HookFormat),
     {reply, Reply, State};
 
+handle_call({remove_module_handlers, Hook, Host, Module}, _From, State) ->
+    Reply = remove_module_handler(Hook, Host, Module),
+    {reply, Reply, State};    
+
 handle_call({get_handlers, Hook, Host}, _From, State) ->
     Reply = case ets:lookup(hooks, {Hook, Host}) of
                 [{_, Handlers}] -> Handlers;
@@ -233,13 +262,78 @@ handle_call({delete_all}, _From, State) ->
     Reply = ets:delete_all_objects(hooks),
     {reply, Reply, State};
 
+handle_call({get_hooks_with_handlers}, _From, State) ->
+    Hooks = ets:foldl(fun({{Hook, _Host}, _}, Acc) -> [Hook|Acc] end, [], hooks),
+    %% This is a case a hook is both global / local, but I do not think this can be the case:
+    Reply = lists:usort(Hooks),
+    {reply, Reply, State};
+
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
--spec handle_add(atom(), atom(), local_hook() | distributed_hook()) -> ok.
+-spec handle_add(atom(), atom(), local_hook() | distributed_hook()) -> ok | {error, atom()}.
+%% Do a bit of consistency check before adding the hook
+handle_add(HookName, Host, HookTuple) ->
+    Hooks = ejabberd_hooks_core:all(),
+    case lists:keyfind(HookName, 2, Hooks) of
+        false -> %% This may be a custom hook, we may have no info on it
+            case extract_module_function(HookTuple) of
+                {undefined, Fun} when is_function(Fun) ->
+                    do_handle_add(HookName, Host, HookTuple);
+                {Module, Function} ->
+                    case catch Module:module_info(exports) of
+                        Exports when is_list(Exports) ->
+                            case lists:keyfind(Function, 1, Exports) of
+                                false ->
+                                    ?ERROR_MSG("Cannot add hook ~p. Function ~p not exported from module ~p",
+                                               [HookName, Function, Module]),
+                                    {error, undefined_function};
+                                _ ->
+                                    do_handle_add(HookName, Host, HookTuple)
+                            end;
+                        _ ->
+                            ?ERROR_MSG("Cannot add hook ~p. Module ~p not found",
+                                       [HookName, Module]),
+                            {error, module_not_found}
+                    end
+            end;
+        #hook{handler_arity = Arity} ->
+            case extract_module_function(HookTuple) of
+                {undefined, Fun} when is_function(Fun) ->
+                    case erlang:fun_info(Fun, arity) of
+                        {arity, Arity} -> do_handle_add(HookName, Host, HookTuple);
+                        {arity, FunArity} ->
+                            ?ERROR_MSG("Cannot add hook ~p with fun. Incorrect arity ~p (expected ~p)",
+                                       [HookName, FunArity, Arity]),
+                            {error, incorrect_arity}
+                    end;
+                {Module, Function} ->
+                    case catch Module:module_info(exports) of
+                        Exports when is_list(Exports) ->
+                            case lists:keyfind(Function, 1, Exports) of
+                                false ->
+                                    ?ERROR_MSG("Cannot add hook ~p. Function ~p not exported from module ~p",
+                                               [HookName, Function, Module]),
+                                    {error, undefined_function};
+                                {Function, Arity} ->
+                                    do_handle_add(HookName, Host, HookTuple);
+                                {Function, WrongArity} ->
+                                    ?ERROR_MSG("Cannot add hook ~p with fun. Incorrect arity ~p (expected ~p)",
+                                               [HookName, WrongArity, Arity]),
+                                    {error, incorrect_arity}
+                            end;
+                        _ ->
+                            ?ERROR_MSG("Cannot add hook ~p. Module ~p not found",
+                                       [HookName, Module]),
+                            {error, module_not_found}
+                    end
+            end
+    end.
+    
+-spec do_handle_add(atom(), atom(), local_hook() | distributed_hook()) -> ok.
 %% in-memory storage operation: Handle adding hook in ETS table
-handle_add(Hook, Host, El) ->
+do_handle_add(Hook, Host, El) ->
     case ets:lookup(hooks, {Hook, Host}) of
         [{_, Ls}] ->
             case lists:member(El, Ls) of
@@ -256,7 +350,6 @@ handle_add(Hook, Host, El) ->
             ok
     end.
 
-
 -spec handle_delete(atom(), atom(), local_hook() | distributed_hook()) -> ok.
 %% in-memory storage operation: Handle deleting hook from ETS table
 handle_delete(Hook, Host, El) ->
@@ -267,6 +360,23 @@ handle_delete(Hook, Host, El) ->
             ok;
         [] ->
             ok
+    end. 
+
+%% Drop all handlers for given module
+remove_module_handler(Hook, Host, Module) ->
+    case ets:lookup(hooks, {Hook, Host}) of
+        [{_, Ls}] ->
+            Filter = fun(HookTuple) ->
+                             case HookTuple of
+                                 {_Seq, Module, _Function} -> false;
+                                 {_Seq, _Node, Module, _Function} -> false;
+                                 _ -> true
+                             end
+                     end,
+            NewLs = lists:filter(Filter, Ls), 
+            ets:insert(hooks, {{Hook, Host}, NewLs}),
+            ok;
+        [] -> ok
     end. 
 
 %%----------------------------------------------------------------------
@@ -379,6 +489,11 @@ run_fold1([{_Seq, Module, Function} | Ls], Hook, Val, Args) ->
 	    run_fold1(Ls, Hook, NewVal, Args)
     end.
 
+extract_module_function({_Seq, Module, Function}) ->
+    {Module, Function};
+extract_module_function({_Seq, _Node, Module, Function}) ->
+    {Module, Function}.
+
 %% This introduce backward compatible change for parameters (Args can be record or list)
 format_args(Val, Args) ->
     case Args of
@@ -392,17 +507,3 @@ safe_apply(Module, Function, Args) ->
        true ->
             catch apply(Module, Function, Args)
     end.
-
-%% Plan for more refactor (Can be done one hook at a time)
-%% - List run vs run_fold hooks
-%% - Change args to be record that has same name than hook
-%% - It means that when adding a hook, we can check arity of the
-%%   function if the hook is known and listed in list generated in 1
-%% Use module name to define hooks: hooks_core.erl
-%%
-%% Everything is backward compliant. Records are a convention for
-%% standard hooks for args but a list could still be provided for custom hooks.
-%% We can deprecate the list args at a later time
-%% Acc still can be of any type and thus return.
-%% Should we process the reply to trigger errorm when result of run
-%% fold hook is incorrect ?

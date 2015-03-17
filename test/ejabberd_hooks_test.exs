@@ -44,9 +44,11 @@ defmodule EjabberdHooksTest do
   
   test "A module function can be added as a hook" do
     hookname = :test_mod_hook
+    modulename = :hook_module
     callback = :hook_callback
-    :ok = :ejabberd_hooks.add(hookname, @host, @self, callback, 40)
-    [{40, @self, _callback}] = :ejabberd_hooks.get_handlers(hookname, @host)
+    mock(modulename, callback, fn -> :ok end)
+    :ok = :ejabberd_hooks.add(hookname, @host, modulename, callback, 40)
+    [{40, ^modulename, ^callback}] = :ejabberd_hooks.get_handlers(hookname, @host)
   end
 
   test "An anonymous function can be removed from hook handlers" do
@@ -57,13 +59,15 @@ defmodule EjabberdHooksTest do
     [] = :ejabberd_hooks.get_handlers(hookname, @host)
   end
 
-  test "An module function can be removed from hook handlers" do
+  test "A module function can be removed from hook handlers" do
     hookname = :test_mod_hook
+    modulename = :hook_module
     callback = :hook_callback
-    :ok = :ejabberd_hooks.add(hookname, @host, @self, callback, 40)
-    :ok = :ejabberd_hooks.delete(hookname, @host, @self, callback, 40)
+    mock(modulename, callback, fn -> :ok end)
+    :ok = :ejabberd_hooks.add(hookname, @host, modulename, callback, 40)
+    :ok = :ejabberd_hooks.delete(hookname, @host, modulename, callback, 40)
     [] = :ejabberd_hooks.get_handlers(hookname, @host)
-    # TODO: Check that removed function is not call anymore
+    # TODO: Check that removed function is not called anymore
   end
 
   test "'Run hook' call registered handler once" do
@@ -148,6 +152,76 @@ defmodule EjabberdHooksTest do
   test "Exit in run_fold is ignored" do
     run_fold_crash(fn(_acc) -> exit :crashed end)
   end
+
+  # TODO: Improve test of all hooks list
+  test "Parse Transform is used to generate list of hooks" do
+    hooks = :ejabberd_hooks_core.all
+    # We get a list of hooks records:
+    [hook|_]  = hooks
+    :hook = elem(hook, 0)
+  end
+
+  test "All handlers for a given hook and module can be removed all at once" do
+    hookname = :test_mod_hook
+    module1_name = :hook_module_1
+    module2_name = :hook_module_2
+    mock(module1_name, :hook_callback_1, fn _ -> :ok end)
+    mock(module1_name, :hook_callback_2, fn _ -> :ok end)
+    mock(module2_name, :hook_callback, fn _ -> :ok end)
+    
+    :ok = :ejabberd_hooks.add(hookname, @host, module1_name, :hook_callback_1, 40)
+    :ok = :ejabberd_hooks.add(hookname, @host, module1_name, :hook_callback_2, 50)
+    :ok = :ejabberd_hooks.add(hookname, @host, module2_name, :hook_callback, 50)
+
+    :ok = :ejabberd_hooks.remove_module_handlers(hookname, @host, module1_name)
+    [{50, ^module2_name, :hook_callback}] = :ejabberd_hooks.get_handlers(hookname, @host)
+  end
+
+  test "We can retrieve the list of hooks that have handlers defined" do
+    hookname1 = :test_mod_hook_1
+    hookname2 = :test_mod_hook_2
+    module1_name = :hook_module_1
+    module2_name = :hook_module_2
+    mock(module1_name, :hook_callback_1, fn _ -> :ok end)
+    mock(module1_name, :hook_callback_2, fn _ -> :ok end)
+    mock(module2_name, :hook_callback, fn _ -> :ok end)
+    
+    :ok = :ejabberd_hooks.add(hookname1, @host, module1_name, :hook_callback_1, 40)
+    :ok = :ejabberd_hooks.add(hookname2, @host, module1_name, :hook_callback_2, 50)
+    :ok = :ejabberd_hooks.add(hookname1, @host, module2_name, :hook_callback, 50)
+
+    [:test_mod_hook_1, :test_mod_hook_2] = :ejabberd_hooks.get_hooks_with_handlers
+  end
+  
+  test "We cannot set hook handler for non-existing module or function for any hook" do
+    hookname = :custom_hook
+    module_name = :hook_module
+
+    {:error, :module_not_found} = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback, 40)
+    [] = :ejabberd_hooks.get_handlers(hookname, @host)
+
+    corehook = :filter_packet
+    {:error, :module_not_found} = :ejabberd_hooks.add(corehook, @host, module_name, :hook_callback, 40)
+    [] = :ejabberd_hooks.get_handlers(corehook, @host)
+
+    mock_module(module_name) # Module now exist, without function
+    {:error, :undefined_function} = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback_undef, 40)
+    [] = :ejabberd_hooks.get_handlers(hookname, @host)
+  end
+
+  # Core hooks are hooks defined in core module
+  test "We cannot set hook handler with wrong arity for core hooks" do
+    corehook = :c2s_loop_debug
+    module_name = :hook_module
+    mock(module_name, :hook_callback, fn -> :ok end)    
+
+    corehook = :filter_packet
+    {:error, :incorrect_arity} = :ejabberd_hooks.add(corehook, @host, module_name, :hook_callback, 40)
+    [] = :ejabberd_hooks.get_handlers(corehook, @host)
+  end
+  
+  # Test helpers
+  # ============
   
   # test for run hook with various number of params
   def run_hook(params, fun, result) do 
@@ -179,14 +253,17 @@ defmodule EjabberdHooksTest do
   end
 
   # TODO refactor: Move to ejabberd_test_mock
-  def mock(module, function, fun) do
+  defp mock(module, function, fun) do
+    mock_module(module)
+    :meck.expect(module, function, fun)
+  end
+
+  defp mock_module(module) do
     try do
       :meck.new(module, [:non_strict])
     catch
       :error, {:already_started, _pid} -> :ok
     end
-
-    :meck.expect(module, function, fun)
   end
   
 end

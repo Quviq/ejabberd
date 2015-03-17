@@ -161,6 +161,7 @@ ElixirConfig = case lists:keysearch(elixir, 1, Cfg) of
 
 Config = [{erl_opts, Macros ++ HiPE ++ DebugInfo ++
                [{src_dirs, [asn1, src | SrcDirs]}]},
+          {erl_first_files, ["src/ejabberd_hooks_transform.erl"]},
           {sub_dirs, ["rel"]},
           {keep_build_info, true},
           {ct_extra_params, "-include "
