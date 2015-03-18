@@ -211,7 +211,6 @@ defmodule EjabberdHooksTest do
 
   # Core hooks are hooks defined in core module
   test "We cannot set hook handler with wrong arity for core hooks" do
-    corehook = :c2s_loop_debug
     module_name = :hook_module
     mock(module_name, :hook_callback, fn -> :ok end)    
 
