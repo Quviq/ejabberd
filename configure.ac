@@ -121,6 +121,14 @@ AC_ARG_ENABLE(tools,
   *) AC_MSG_ERROR(bad value ${enableval} for --enable-tools) ;;
 esac],[if test "x$tools" = "x"; then tools=false; fi])
 
+AC_ARG_ENABLE(eqc,
+[AC_HELP_STRING([--enable-eqc], [test development tool quickcheck (default: no)])],
+[case "${enableval}" in
+  yes) eqc=true ;;
+  no)  eqc=false ;;
+  *) AC_MSG_ERROR(bad value ${enableval} for --enable-eqc) ;;
+esac],[if test "x$eqc" = "x"; then eqc=false; fi])
+
 AC_ARG_ENABLE(nif,
 [AC_HELP_STRING([--enable-nif], [replace some functions with C equivalents. Requires Erlang R13B04 or higher (default: no)])],
 [case "${enableval}" in
@@ -264,5 +272,6 @@ AC_SUBST(iconv)
 AC_SUBST(debug)
 AC_SUBST(lager)
 AC_SUBST(tools)
+AC_SUBST(eqc)
 
 AC_OUTPUT

@@ -18,6 +18,7 @@
 
 %% Ad-hoc directories with source files
 {tools, @tools@}.
+{eqc_ex, @eqc@}.
 
 %% Dependencies
 {odbc, @odbc@}.
