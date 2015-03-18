@@ -75,10 +75,12 @@ hook_scope(Line, Name, run_fold, Arity) ->
     io:format("Hook ~p of type 'run_fold' must be of arity 2 or 3 (was: ~p)~n Line: ~p~n", [Name, Arity, Line]),
     throw(compile_error).
 
-handler_arity(run, global)      -> 1;    
-handler_arity(run, local)       -> 2;
-handler_arity(run_fold, global) -> 2;
-handler_arity(run_fold, local)  -> 3.
+%% TODO For now local hook do not pass always the host (it is passed as args) 
+%% Do we want to always pass it as an extra parameter for consistency ?
+handler_arity(run, local)      -> 1;  %% May become 2 if we always pass host
+handler_arity(run, global)      -> 1;
+handler_arity(run_fold, local) -> 2;  %% May become 3 if we always pass host
+handler_arity(run_fold, global) -> 2.
 
 list_to_nested_cons([], Line) ->
     [{nil, Line}];
@@ -92,6 +94,3 @@ list_to_nested_cons([H|T], Structure, Line) ->
         
 %% TODO:
 %% - Add a method to generate hooks implementation template (to help developer, he can copy paste) 
-%% - Add way to check that method exist and is of correct arity when adding handler
-%% (Parse transform in the module doing ejabberd_hooks:add): We can display a warning at compile time ? Probably better to be dynamic)
-%% - Add a way to check the types when adding a hook.
