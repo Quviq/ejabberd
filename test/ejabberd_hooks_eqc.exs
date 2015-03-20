@@ -12,8 +12,13 @@ defmodule Hooks_eqc do
 	def initial_state do %{} end
 	
 	## add a handler
-	def add_anonymous_args(_state) do [hookname, function1(:ok), choose(0,100)] end
+	def add_anonymous_args(_hooks) do [hookname, function1(:ok), choose(0,100)] end
 
+	## May we add the same hook twice, if so we need to change datatype
+	def add_anonymous_pre(hooks, [hookname, _, _]) do
+		not Map.has_key?(hooks,hookname)
+	end
+		
 	def add_anonymous(hookname, fun, seq) do
 		:ejabberd_hooks.add(hookname, @host, fun, seq)
 	end
