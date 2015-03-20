@@ -6,19 +6,19 @@ defmodule Hooks_eqc do
 	@host <<"domain.net">>
 
 	## generators
-	def hookname do elements([:test_hook1, :test_hook2]) end
+	def hookname do elements([:hook1, :hook2, :hook3]) end
 
 	## use maps Elixir has maps anyway and testing is done on R17
 	def initial_state do %{} end
 	
 	## add a handler
-	def add_args(_state) do [hookname, choose(0,100)] end
+	def add_anonymous_args(_state) do [hookname, function1(:ok), choose(0,100)] end
 
-	def add(hookname, seq) do
-		:ejabberd_hooks.add(hookname, @host, fn _ -> :ok end, seq)
+	def add_anonymous(hookname, fun, seq) do
+		:ejabberd_hooks.add(hookname, @host, fun, seq)
 	end
 
-	def add_next(hooks, _, [hookname, seq]) do
+	def add_anonymous_next(hooks, _, [hookname, _, seq]) do
 		Map.put(hooks, hookname, seq)
 	end 
 
@@ -32,9 +32,9 @@ defmodule Hooks_eqc do
 
 	def get_post(hooks, [hookname], res) do
 		case res do
-		  [{seq, mod, name}] ->
-				eq({seq, mod, name}, {0, :undefined, hookname})
-		    # conj mod: :undefined, name: hookname, seq: 0
+		  [{seq, :undefined, fun}] when is_function(fun) -> 
+				eq(seq, hooks[hookname])
+		    # conj fun: is_function(fun), seq: eq(seq, hooks[:hook])
 			[] ->
 				not Map.has_key?(hooks,hookname)	 
 			_other ->
@@ -44,8 +44,8 @@ defmodule Hooks_eqc do
 
 	weight _hooks,
 	   add: 1
-  	
-	property "Ejabberd Hooks" do
+		
+	property "Ejabberd Hooks" do 
 		:eqc_statem.show_states(
 		forall cmds <- commands(__MODULE__) do
 			{:ok, pid} = :ejabberd_hooks.start_link
