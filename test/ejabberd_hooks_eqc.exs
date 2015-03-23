@@ -33,7 +33,7 @@ end
 
 def hook_arity(state, name) do
   case get_hooks(state, name) do
-    []                -> :undefined
+    []                   -> :undefined
     [{_, _, _, arity}|_] -> arity
   end
 end
@@ -41,6 +41,14 @@ end
 def add_hook(state, name, hook) do
   hooks = get_hooks(state, name)
   %{state | hooks: Map.put(state.hooks, name, :lists.keymerge(2, hooks, [hook]))}
+end
+
+def delete_hook(state, name, hook) do
+  hooks = get_hooks(state, name) -- [hook]
+  case hooks do
+    [] -> %{state | hooks: Map.delete(state.hooks, name)}
+    _  -> %{state | hooks: Map.put(state.hooks, name, hooks)}
+  end
 end
 
 # -- Commands ---------------------------------------------------------------
@@ -66,13 +74,16 @@ def add_anonymous_pre(state, [name, arity, _, seq]) do
 end
 
 def add_anonymous(name, arity, id, seq) do
-  fun = case arity do
-          0 -> fn          -> :hook.anon(name, seq, [],        id) end
-          1 -> fn(x)       -> :hook.anon(name, seq, [x],       id) end
-          2 -> fn(x, y)    -> :hook.anon(name, seq, [x, y],    id) end
-          3 -> fn(x, y, z) -> :hook.anon(name, seq, [x, y, z], id) end
-        end
-  :ejabberd_hooks.add(name, @host, fun, seq)
+  :ejabberd_hooks.add(name, @host, anonymous_fun(name, arity, id, seq), seq)
+end
+
+def anonymous_fun(name, arity, id, seq) do
+  case arity do
+    0 -> fn          -> :hook.anon(name, seq, [],        id) end
+    1 -> fn(x)       -> :hook.anon(name, seq, [x],       id) end
+    2 -> fn(x, y)    -> :hook.anon(name, seq, [x, y],    id) end
+    3 -> fn(x, y, z) -> :hook.anon(name, seq, [x, y, z], id) end
+  end
 end
 
 def add_anonymous_next(state, _, [name, arity, id, seq]) do
@@ -106,6 +117,34 @@ end
 
 def add_mf_next(state, _, [name, fun, seq]) do
   add_hook(state, name, {:mf, seq, fun, mf_arity(fun)})
+end
+
+# -- delete a hook ----------------------------------------------------------
+
+def delete_args(state) do
+  let {name, hooks}          <- elements(Map.to_list(state.hooks)) do
+  let {type, seq, id, arity} <- elements(hooks) do
+    return([name, type, seq, id, arity])
+  end end
+end
+
+def delete_pre(state) do
+  %{} != state.hooks
+end
+
+def delete_pre(state, [name, type, seq, id, arity]) do
+  {type, seq, id, arity} in get_hooks(state, name)
+end
+
+def delete(name, :fun, seq, id, arity) do
+  :ejabberd_hooks.delete(name, @host, anonymous_fun(name, arity, id, seq), seq)
+end
+def delete(name, :mf, seq, fun, _arity) do
+  :ejabberd_hooks.delete(name, @host, :hook, fun, seq)
+end
+
+def delete_next(state, _, [name, type, seq, id, arity]) do
+  delete_hook(state, name, {type, seq, id, arity})
 end
 
 # --- running a handler ---
