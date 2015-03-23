@@ -123,21 +123,20 @@ def run(hookname, params) do
 end
 
 def run_callouts(state, [name, args]) do
-  {:self_callout, __MODULE__, :call_hooks, [name, args, get_hooks(state, name)]}
+  call call_hooks(name, args, get_hooks(state, name))
 end
 
 def call_hooks_callouts(_state, [_name, _, []]), do: :empty
 def call_hooks_callouts(_state, [name, args, [{type, seq, id, arity}|hooks]]) do
-  call =
+  match res =
     case type do
-      _ when length(args) != arity -> {:fail, {:bad_arguments, args, arity}}
-      :mf  -> :eqc_component.callout(:hook, id, args, hook_result)
-      :fun -> :eqc_component.callout(:hook, :anon, [name, seq, args, id], hook_result)
+      :mf  -> callout(:hook, id, args, hook_result)
+      :fun -> callout :hook.anon(name, seq, args, id), return: hook_result
     end
-  {:bind, call,
-    fn(:stop) -> :empty
-      (_)     -> {:self_callout, __MODULE__, :call_hooks, [name, args, hooks]}
-    end}
+  case res do
+    :stop -> :empty
+    _     -> call call_hooks(name, args, hooks)
+  end
 end
 
 def run_post(_state, [_name, _args], res) do
