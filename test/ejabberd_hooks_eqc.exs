@@ -9,14 +9,11 @@ require EQC.Mocking
 
 # -- Generators -------------------------------------------------------------
 
+def arg,             do: elements [:a, :b, :c, :d, :e]
 def hook_name,       do: elements [:hook1, :hook2, :hook3]
 def hook_result,     do: elements [:ok, :stop, :error, {:"$eqc_exception", :fail}]
-
-def run_params(:undefined) do
-  let n <- choose(0, 3), do: run_params(n)
-end
-def run_params(n),   do: vector(n, choose(0, 100))
-
+def run_params,      do: run_params(3)
+def run_params(n),   do: :eqc_gen.list(n, arg)
 def sequence_number, do: choose(0, 100)
 
 # -- State ------------------------------------------------------------------
@@ -31,11 +28,8 @@ def get_hooks(state, name) do
   end
 end
 
-def hook_arity(state, name) do
-  case get_hooks(state, name) do
-    []                   -> :undefined
-    [{_, _, _, arity}|_] -> arity
-  end
+def get_hooks(state, name, arity) do
+  for h={_, _, _, a} <- get_hooks(state, name), a == arity, do: h
 end
 
 def add_hook(state, name, hook) do
@@ -55,22 +49,15 @@ end
 
 # --- add an anonymous handler ---
 
-def add_anonymous_args(state) do
-  let name <- hook_name do
-    arity = case hook_arity(state, name) do
-              :undefined -> choose(0, 3)
-              n          -> n
-            end
-    [hook_name, arity, :eqc_gen.noshrink(choose(1, 1000)), sequence_number]
-  end
+def add_anonymous_args(_state) do
+  [hook_name, choose(0, 3), :eqc_gen.noshrink(choose(1, 1000)), sequence_number]
 end
 
 # Don't add more than one hook with the same sequence number. The system allows
 # that but does a usort on the hooks when running them, which gets super weird
 # for anonymous functions.
-def add_anonymous_pre(state, [name, arity, _, seq]) do
-  not :lists.keymember(seq, 2, get_hooks(state, name)) and
-  hook_arity(state, name) in [:undefined, arity]
+def add_anonymous_pre(state, [name, _, _, seq]) do
+  not :lists.keymember(seq, 2, get_hooks(state, name))
 end
 
 def add_anonymous(name, arity, id, seq) do
@@ -97,18 +84,12 @@ def mf_arity(:fun1), do: 1
 def mf_arity(:fun2), do: 2
 def mf_arity(:fun3), do: 3
 
-def add_mf_args(state) do
-  let name <- hook_name do
-  let fun  <- elements(for f <- [:fun0, :fun1, :fun2, :fun3],
-                           hook_arity(state, name) in [:undefined, mf_arity(f)],
-                           do: f) do
-  [name, fun, sequence_number]
-  end end
+def add_mf_args(_state) do
+  [hook_name, elements([:fun0, :fun1, :fun2, :fun3]), sequence_number]
 end
 
-def add_mf_pre(state, [name, fun, seq]) do
-  not :lists.keymember(seq, 2, get_hooks(state, name)) and
-  hook_arity(state, name) in [:undefined, mf_arity(fun)]
+def add_mf_pre(state, [name, _fun, seq]) do
+  not :lists.keymember(seq, 2, get_hooks(state, name))
 end
 
 def add_mf(name, fun, seq) do
@@ -149,24 +130,18 @@ end
 
 # --- running a handler ---
 
-def run_args(state) do
-  let name <- hook_name, do: [hook_name, run_params(hook_arity(state, name))]
-end
-
-def run_pre(state, [name, args]) do
-  hook_arity(state, name) in [:undefined, length(args)]
-end
+def run_args(_state), do: [hook_name, run_params]
 
 def run(hookname, params) do
   :ejabberd_hooks.run(hookname, @host, params)
 end
 
 def run_callouts(state, [name, args]) do
-  call call_hooks(name, args, get_hooks(state, name))
+  call call_hooks(name, args, get_hooks(state, name, length(args)))
 end
 
 def call_hooks_callouts(_state, [_name, _, []]), do: :empty
-def call_hooks_callouts(_state, [name, args, [{type, seq, id, arity}|hooks]]) do
+def call_hooks_callouts(_state, [name, args, [{type, seq, id, _arity}|hooks]]) do
   match res =
     case type do
       :mf  -> callout(:hook, id, args, hook_result)
