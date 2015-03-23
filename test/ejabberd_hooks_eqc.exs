@@ -11,8 +11,8 @@ require EQC.Mocking
 
 def arg,             do: elements [:a, :b, :c, :d, :e]
 def hook_name,       do: elements [:hook1, :hook2, :hook3]
-def run_params,      do: run_params(3)
 def hook_result,     do: elements [:ok, :stop, :error, exception(:fail)]
+def run_params,      do: run_params(2)
 def run_params(n),   do: :eqc_gen.list(n, arg)
 def sequence_number, do: choose(0, 100)
 
@@ -160,7 +160,7 @@ end
 # -- run_fold ---------------------------------------------------------------
 
 def run_fold_args(_state) do
-  [hook_name, choose(0, 100), run_params(2)]
+  [hook_name, arg, run_params(1)]
 end
 
 def run_fold(name, val, args) do
