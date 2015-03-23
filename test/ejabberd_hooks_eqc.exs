@@ -157,6 +157,38 @@ def run_post(_state, [_name, _args], res) do
   eq(res, :ok)
 end
 
+# -- run_fold ---------------------------------------------------------------
+
+def run_fold_args(_state) do
+  [hook_name, choose(0, 100), run_params(2)]
+end
+
+def run_fold(name, val, args) do
+  :ejabberd_hooks.run_fold(name, @host, val, args)
+end
+
+def run_fold_callouts(state, [name, val, args]) do
+  call fold_hooks(name, val, args, get_hooks(state, name, length(args) + 1))
+end
+
+def fold_hooks_callouts(_state, [_name, val, _, []]), do: {:return, val}
+def fold_hooks_callouts(_state, [name, val, args, [{type, seq, id, _arity}|hooks]]) do
+  match res =
+    case type do
+      :mf  -> callout(:hook, id, [val|args], hook_result)
+      :fun -> callout :hook.anon(name, seq, [val|args], id), return: hook_result
+    end
+  case res do
+    :stop                  -> {:return, :stopped}
+    {:"$eqc_exception", _} -> call fold_hooks(name, val, args, hooks)
+    _                      -> call fold_hooks(name, res, args, hooks)
+  end
+end
+
+def run_fold_post(_state, [_name, _val, _args], res, meta) do
+  eq(res, :proplists.get_value(:res, meta, :ok))
+end
+
 # --- get info on a handler ---
 
 def get_args(_state), do: [ hook_name ]
