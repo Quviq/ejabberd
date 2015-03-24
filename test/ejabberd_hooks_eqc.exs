@@ -13,10 +13,28 @@ def gen_hook_result,     do: elements [:ok, :stop, :error, exception(:fail)]
 def gen_run_params,      do: gen_run_params(2)
 def gen_run_params(n),   do: :eqc_gen.list(n, gen_arg)
 def gen_sequence_number, do: choose(0, 20)
-def gen_host,            do: elements [:global, 'domain.net']
+def gen_host,            do: elements [:global, this_host]
+def gen_node,            do: elements [this_node() | child_nodes()]
 def gen_hook_module,     do: elements [:hook, :zook]
 def gen_hook_fun,        do: elements [:fun0, :fun1, :fun2]
 def gen_handler,         do: oneof [{gen_hook_module, gen_hook_fun}, {:fn, choose(0, 2), gen_arg}]
+
+# -- Distribution -----------------------------------------------------------
+
+def child_nodes, do: [:node1, :node2]
+
+def this_node do
+  [name, _] = :string.tokens(:erlang.atom_to_list(node), '@')
+  :erlang.list_to_atom(name)
+end
+
+def this_host() do
+  [_, host] = :string.tokens(:erlang.atom_to_list(node), '@')
+  host
+end
+
+def mk_node(name),       do: mk_node(name, this_host)
+def mk_node(name, host), do: :erlang.list_to_atom(:lists.concat([name, '@', host]))
 
 # -- State ------------------------------------------------------------------
 
@@ -44,10 +62,16 @@ end
 # ordering is a little bit unpredictable for anonymous handlers since they are
 # compared on the 'fun' values when they have the same sequence number.
 def hook_ref(name, {seq, hook}) do
-  case hook.fun do
-    {:fn, arity, id} -> {hook.host, seq, :undefined, anonymous_fun(name, arity, id, seq)}
-    {mod, fun}       -> {hook.host, seq, mod, fun}
-  end
+  key =
+    case hook do
+      %{fun: {:fn, arity, id}} ->
+        {seq, :undefined, anonymous_fun(name, arity, id, seq)}
+      %{fun: {mod, fun}, node: node} ->
+        {seq, mk_node(node), mod, fun}
+      %{fun: {mod, fun}} ->
+        {seq, mod, fun}
+    end
+  {hook.host, key}
 end
 
 def add_hook(state, name, hook) do
@@ -98,12 +122,30 @@ def add_next(state, _, [name, host, fun, seq]) do
   add_hook(state, name, {seq, %{host: host, fun: fun}})
 end
 
-# -- delete a hook ----------------------------------------------------------
+# --- add a distributed handler ---
+
+def add_dist_args(_state) do
+  [gen_hook_name, gen_host, gen_node,
+   gen_hook_module, gen_hook_fun, gen_sequence_number]
+end
+
+def add_dist(name, host, node, mod, fun, seq) do
+  :ejabberd_hooks.add_dist(name, host, mk_node(node), mod, fun, seq)
+end
+
+def add_dist_next(state, _, [name, host, node, mod, fun, seq]) do
+  add_hook(state, name, {seq, %{host: host, node: node, fun: {mod, fun}}})
+end
+
+# -- delete a handler -------------------------------------------------------
 
 def delete_args(state) do
   let {name, hooks} <- elements(Map.to_list(state.hooks)) do
   let {seq, h}      <- elements(hooks) do
-    [name, h.host, h.fun, seq]
+    case Map.has_key?(h, :node) do
+      true  -> return [name, h.host, h.node, h.fun, seq]
+      false -> return [name, h.host, h.fun, seq]
+    end
   end end
 end
 
@@ -117,9 +159,15 @@ end
 def delete(name, host, {mod, fun}, seq) do
   :ejabberd_hooks.delete(name, host, mod, fun, seq)
 end
+def delete(name, host, node, {mod, fun}, seq) do
+  :ejabberd_hooks.delete_dist(name, host, mk_node(node), mod, fun, seq)
+end
 
 def delete_next(state, _, [name, host, fun, seq]) do
   delete_hook(state, name, {seq, %{host: host, fun: fun}})
+end
+def delete_next(state, _, [name, host, node, fun, seq]) do
+  delete_hook(state, name, {seq, %{host: host, node: node, fun: fun}})
 end
 
 # -- removing all hooks for a module ----------------------------------------
@@ -131,9 +179,10 @@ def remove_module_handlers(name, host, module) do
 end
 
 def remove_module_handlers_next(state, _, [name, host, module]) do
-  filter_hooks(state, name, fn (_, %{host: h}) when h != host -> true
-                               (_, %{fun: {mod, _}})          -> mod != module
-                               (_, _)                         -> true end)
+  filter_hooks(state, name,
+    fn (_, %{host: h}) when h != host -> true
+       (_, %{fun: {mod, _}})          -> mod != module
+       (_, _)                         -> true end)
 end
 
 # --- running a handler ---
@@ -198,11 +247,9 @@ def get(name, host) do
 end
 
 def get_return(state, [name, host]) do
-  for {seq, hook} <- get_hooks(state, name, host) do
-    case hook.fun do
-      {:fn, arity, id} -> {seq, :undefined, anonymous_fun(name, arity, id, seq)}
-      {mod, fun}       -> {seq, mod, fun}
-    end
+  for hook <- get_hooks(state, name, host) do
+    {_, key} = hook_ref(name, hook)
+    key
   end
 end
 
@@ -233,7 +280,7 @@ weight _hooks,
 
 property "Ejabberd Hooks" do
   # :eqc_statem.show_states(
-    EQC.setup :eqc_mocking.start_mocking(api_spec)  do
+    EQC.setup_teardown setup do
     forall cmds <- commands(__MODULE__) do
       {:ok, pid} = :ejabberd_hooks.start_link
       :erlang.unlink(pid)
@@ -244,8 +291,24 @@ property "Ejabberd Hooks" do
         :eqc.aggregate(command_names(cmds),
           res[:result] == :ok))
       end
+    after _ -> teardown
     end
 end
+
+def setup() do
+  :eqc_mocking.start_mocking(api_spec)
+  for name <- child_nodes do
+    :slave.start(this_host(), name)
+    :rpc.call(mk_node(name), :eqc_mocking, :start_mocking, [api_spec])
+  end
+end
+
+def teardown() do
+  # for name <- child_nodes do
+  #   :slave.stop(mk_node(name))
+  # end
+end
+
 
 # -- API spec ---------------------------------------------------------------
 
