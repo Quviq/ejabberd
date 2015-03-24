@@ -119,6 +119,20 @@ def delete_next(state, _, [name, host, fun, seq]) do
   delete_hook(state, name, {seq, %{host: host, fun: fun}})
 end
 
+# -- removing all hooks for a module ----------------------------------------
+
+def remove_module_handlers_args(_state), do: [hook_name, host, hook_module]
+
+def remove_module_handlers(name, host, module) do
+  :ejabberd_hooks.remove_module_handlers(name, host, module)
+end
+
+def remove_module_handlers_next(state, _, [name, host, module]) do
+  filter_hooks(state, name, fn (_, %{host: h}) when h != host -> true
+                               (_, %{fun: {mod, _}})          -> mod != module
+                               (_, _)                         -> true end)
+end
+
 # --- running a handler ---
 
 def run_args(_state), do: [hook_name, host, run_params]
