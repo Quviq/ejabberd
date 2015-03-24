@@ -4,20 +4,29 @@ use ExUnit.Case
 use EQC.ExUnit
 use EQC.Component
 require EQC.Mocking
+require Record
 
 # -- Generators -------------------------------------------------------------
 
+# I couldn't make Record.extract find ejabberd_hooks.hrl.
+def core_hooks() do
+  for {:hook, name, _, arity, _, _} <- :ejabberd_hooks_core.all() do
+    {name, arity}
+  end
+end
+
 def gen_arg,             do: elements [:a, :b, :c, :stop, :error]
-def gen_hook_name,       do: elements [:hook1, :hook2, :hook3]
+def gen_hook_name,       do: elements([:hook1, :hook2] ++ for {h, _} <- core_hooks, do: h)
 def gen_result,          do: elements [:ok, :stop, :error, exception(:fail)]
-def gen_run_params,      do: gen_run_params(2)
+def gen_run_params,      do: gen_run_params(3)
 def gen_run_params(n),   do: :eqc_gen.list(n, gen_arg)
 def gen_sequence_number, do: choose(0, 20)
 def gen_host,            do: elements [:global, this_host]
 def gen_node,            do: elements [this_node() | child_nodes()]
 def gen_module,          do: elements [:handlers, :zandlers]
-def gen_fun_name,        do: elements [:fun0, :fun1, :fun2]
-def gen_handler,         do: oneof [{gen_module, gen_fun_name}, {:fn, choose(0, 2), gen_arg}]
+def gen_fun_name,        do: elements [:fun0, :fun1, :fun2, :fun3]
+def gen_handler,         do: oneof [{gen_module, gen_fun_name}, {:fn, choose(0, 3), gen_arg}]
+def gen_faulty_handler,  do: oneof [{:bad_module, gen_fun_name}, {gen_module, :bad_fun}]
 
 # -- Distribution -----------------------------------------------------------
 
@@ -107,11 +116,28 @@ def anonymous_fun(name, arity, id, seq) do
   end
 end
 
+def check_fun(fun), do: check_fun(this_node(), fun)
+def check_fun(_, {:bad_module, _}), do: {:error, :module_not_found}
+def check_fun(_, {_, :bad_fun}),    do: {:error, :undefined_function}
+def check_fun(name, fun) do
+  case core_hooks()[name] do
+    nil   -> :ok
+    arity ->
+      case arity == get_arity(fun) do
+        true  -> :ok
+        false -> {:error, :incorrect_arity}
+      end
+  end
+end
+
 # -- Commands ---------------------------------------------------------------
 
 # --- add a handler ---
 
-def add_args(_state), do: [gen_hook_name, gen_host, gen_handler, gen_sequence_number]
+def add_args(_state) do
+  [gen_hook_name, gen_host,
+   fault(gen_faulty_handler, gen_handler), gen_sequence_number]
+end
 
 def add(name, host, {:fn, arity, id}, seq) do
   :ejabberd_hooks.add(name, host, anonymous_fun(name, arity, id, seq), seq)
@@ -120,8 +146,15 @@ def add(name, host, {mod, fun}, seq) do
   :ejabberd_hooks.add(name, host, mod, fun, seq)
 end
 
-def add_next(state, _, [name, host, fun, seq]) do
-  add_handler(state, name, %{host: host, fun: fun}, seq)
+def add_callouts(_state, [name, host, fun, seq]) do
+  case check_fun(name, fun) do
+    :ok -> call do_add(name, %{host: host, fun: fun}, seq)
+    err -> {:return, err}
+  end
+end
+
+def do_add_next(state, _, [name, handler, seq]) do
+  add_handler(state, name, handler, seq)
 end
 
 # --- add a distributed handler ---
@@ -135,8 +168,11 @@ def add_dist(name, host, node, mod, fun, seq) do
   :ejabberd_hooks.add_dist(name, host, mk_node(node), mod, fun, seq)
 end
 
-def add_dist_next(state, _, [name, host, node, mod, fun, seq]) do
-  add_handler(state, name, %{host: host, node: node, fun: {mod, fun}}, seq)
+def add_dist_callouts(_state, [name, host, node, mod, fun, seq]) do
+  case check_fun(name, {mod, fun}) do
+    :ok -> call do_add(name, %{host: host, node: node, fun: {mod, fun}}, seq)
+    err -> {:return, err}
+  end
 end
 
 # --- delete a handler ---
@@ -278,6 +314,7 @@ weight _state,
 
 property "Ejabberd Hooks" do
   EQC.setup_teardown setup do
+  fault_rate(1, 10,
   forall cmds <- commands(__MODULE__) do
     {:ok, pid} = :ejabberd_hooks.start_link
     :erlang.unlink(pid)
@@ -287,7 +324,7 @@ property "Ejabberd Hooks" do
     pretty_commands(__MODULE__, cmds, res,
       :eqc.aggregate(command_names(cmds),
         res[:result] == :ok))
-    end
+    end)
   after _ -> teardown
   end
 end
@@ -304,6 +341,7 @@ def teardown() do
   for name <- child_nodes do
     :slave.stop(mk_node(name))
   end
+  :eqc_mocking.stop_mocking()
 end
 
 
@@ -317,12 +355,14 @@ def api_spec do
           [ EQC.Mocking.api_fun(name: :anon,       arity: 4),
             EQC.Mocking.api_fun(name: :fun0,       arity: 0),
             EQC.Mocking.api_fun(name: :fun1,       arity: 1),
-            EQC.Mocking.api_fun(name: :fun2,       arity: 2) ]),
+            EQC.Mocking.api_fun(name: :fun2,       arity: 2),
+            EQC.Mocking.api_fun(name: :fun3,       arity: 3) ]),
       EQC.Mocking.api_module(name: :zandlers,
         functions:
           [ EQC.Mocking.api_fun(name: :fun0,       arity: 0),
             EQC.Mocking.api_fun(name: :fun1,       arity: 1),
-            EQC.Mocking.api_fun(name: :fun2,       arity: 2) ])
+            EQC.Mocking.api_fun(name: :fun2,       arity: 2),
+            EQC.Mocking.api_fun(name: :fun3,       arity: 3) ])
     ]
   ]
 end
@@ -337,7 +377,7 @@ def get_api_arity(mod, fun) do
     end
   case as do
     [a] -> a
-    []  -> :erlang.error({:not_in_api_spec, mod, fun})
+    []  -> 0
     _   -> :erlang.error({:ambiguous_arity, mod, fun, as})
   end
 end
