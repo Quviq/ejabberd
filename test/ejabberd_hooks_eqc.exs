@@ -100,7 +100,7 @@ end
 def delete_args(state) do
   let {name, hooks} <- elements(Map.to_list(state.hooks)) do
   let {seq, h}      <- elements(hooks) do
-    [name, host, h.fun, seq]
+    [name, h.host, h.fun, seq]
   end end
 end
 
