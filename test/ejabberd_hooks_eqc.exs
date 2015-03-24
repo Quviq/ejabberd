@@ -194,19 +194,26 @@ def run(name, host, params) do
 end
 
 def run_callouts(state, [name, host, args]) do
-  call call_hooks(name, args, get_hooks(state, name, host, length(args)))
+  call run_handlers(name, fn(args, _) -> args end, fn(_) -> :ok end,
+                    args, get_hooks(state, name, host, length(args)))
+  {:return, :ok}
 end
 
-def call_hooks_callouts(_state, [_name, _, []]), do: :empty
-def call_hooks_callouts(_state, [name, args, [{seq, hook}|hooks]]) do
+# This helper command generalises run and run_fold. It takes two functions:
+#   next(args, res) - computes the arguments for the next handler from the
+#                     current arguments and the result of the current handler
+#   ret(args)       - computes the final result given the current arguments
+def run_handlers_callouts(_state, [_, _, ret, args, []]), do: {:return, ret.(args)}
+def run_handlers_callouts(_state, [name, next, ret, args, [{seq, hook}|hooks]]) do
   match res =
     case hook.fun do
       {mod, fun}   -> callout(mod, fun, args, gen_hook_result)
       {:fn, _, id} -> callout :hook.anon(name, seq, args, id), return: gen_hook_result
     end
   case res do
-    :stop -> :empty
-    _     -> call call_hooks(name, args, hooks)
+    :stop        -> {:return, :stopped}
+    exception(_) -> call run_handlers(name, next, ret, args, hooks)
+    _            -> call run_handlers(name, next, ret, next.(args, res), hooks)
   end
 end
 
@@ -221,21 +228,11 @@ def run_fold(name, host, val, args) do
 end
 
 def run_fold_callouts(state, [name, host, val, args]) do
-  call fold_hooks(name, val, args, get_hooks(state, name, host, length(args) + 1))
-end
-
-def fold_hooks_callouts(_state, [_name, val, _, []]), do: {:return, val}
-def fold_hooks_callouts(_state, [name, val, args, [{seq, hook}|hooks]]) do
-  match res =
-    case hook.fun do
-      {mod, fun}   -> callout(mod, fun, [val|args], gen_hook_result)
-      {:fn, _, id} -> callout :hook.anon(name, seq, [val|args], id), return: gen_hook_result
-    end
-  case res do
-    :stop        -> {:return, :stopped}
-    exception(_) -> call fold_hooks(name, val, args, hooks)
-    _            -> call fold_hooks(name, res, args, hooks)
-  end
+  # call fold_hooks(name, val, args, get_hooks(state, name, host, length(args) + 1))
+  call run_handlers(name,
+                    fn([_val|args], res) -> [res|args] end,
+                    fn([val|_]) -> val end,
+                    [val|args], get_hooks(state, name, host, length(args) + 1))
 end
 
 # --- get info on a handler ---
