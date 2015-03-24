@@ -17,7 +17,10 @@ end
 
 def gen_arg,             do: elements [:a, :b, :c, :stop, :error]
 def gen_hook_name,       do: elements([:hook1, :hook2] ++ for {h, _} <- core_hooks, do: h)
-def gen_result,          do: elements [:ok, :stop, :error, exception(:fail)]
+def gen_result           do
+  weighted_default({4, elements [:ok, :stop, :error, exception(:fail)]},
+                   {1, {:stop, EQC.lazy(do: gen_result)}})
+end
 def gen_run_params,      do: gen_run_params(3)
 def gen_run_params(n),   do: :eqc_gen.list(n, gen_arg)
 def gen_sequence_number, do: choose(0, 20)
@@ -232,9 +235,11 @@ def run(name, host, params) do
 end
 
 def run_callouts(state, [name, host, args]) do
-  call run_handlers(name, fn(args, _) -> args end, fn(_) -> :ok end,
-                    args, get_handlers(state, name, host, length(args)))
-  {:return, :ok}
+  call run_handlers(name,
+    fn(_, :stop) -> {:stop, :ok}
+      (args, _)  -> args end,
+    fn(_) -> :ok end,
+    args, get_handlers(state, name, host, length(args)))
 end
 
 # --- run_fold ---
@@ -249,14 +254,17 @@ end
 
 def run_fold_callouts(state, [name, host, val, args]) do
   call run_handlers(name,
-    fn([_|args], res) -> [res|args] end,
+    fn(_, :stop)        -> {:stop, :stopped}
+      (_, {:stop, val}) -> {:stop, val}
+      ([_|args], res)   -> [res|args] end,
     fn([val|_]) -> val end, [val|args],
     get_handlers(state, name, host, length(args) + 1))
 end
 
 # This helper command generalises run and run_fold. It takes two functions:
 #   next(args, res) - computes the arguments for the next handler from the
-#                     current arguments and the result of the current handler
+#                     current arguments and the result of the current handler,
+#                     or {:stop, val} to stop and return val
 #   ret(args)       - computes the final result given the current arguments
 def run_handlers_callouts(_state, [_, _, ret, args, []]), do: {:return, ret.(args)}
 def run_handlers_callouts(_state, [name, next, ret, args, [{seq, h}|handlers]]) do
@@ -266,9 +274,12 @@ def run_handlers_callouts(_state, [name, next, ret, args, [{seq, h}|handlers]]) 
       {:fn, _, id} -> callout :handlers.anon(name, seq, args, id), return: gen_result
     end
   case res do
-    :stop        -> {:return, :stopped}
     exception(_) -> call run_handlers(name, next, ret, args, handlers)
-    _            -> call run_handlers(name, next, ret, next.(args, res), handlers)
+    _            ->
+      case next.(args, res) do
+        {:stop, val} -> {:return, val}
+        args1        -> call run_handlers(name, next, ret, args1, handlers)
+      end
   end
 end
 
