@@ -5,8 +5,6 @@ use EQC.ExUnit
 use EQC.Component
 require EQC.Mocking
 
-@host <<"domain.net">>
-
 # -- Generators -------------------------------------------------------------
 
 def arg,             do: elements [:a, :b, :c, :d, :e]
@@ -15,6 +13,7 @@ def hook_result,     do: elements [:ok, :stop, :error, exception(:fail)]
 def run_params,      do: run_params(2)
 def run_params(n),   do: :eqc_gen.list(n, arg)
 def sequence_number, do: choose(0, 100)
+def host,            do: elements [:global, 'domain.net']
 
 # -- State ------------------------------------------------------------------
 
@@ -28,13 +27,17 @@ def get_hooks(state, name) do
   end
 end
 
-def get_hooks(state, name, arity) do
-  for h={_, _, _, a} <- get_hooks(state, name), a == arity, do: h
+def get_hooks(state, name, host) do
+  for h={_, d} <- get_hooks(state, name), d.host == host, do: h
+end
+
+def get_hooks(state, name, host, arity) do
+  for h={_, d} <- get_hooks(state, name, host), d.arity == arity, do: h
 end
 
 def add_hook(state, name, hook) do
   hooks = get_hooks(state, name)
-  %{state | hooks: Map.put(state.hooks, name, :lists.keymerge(2, hooks, [hook]))}
+  %{state | hooks: Map.put(state.hooks, name, :lists.keymerge(1, hooks, [hook]))}
 end
 
 def delete_hook(state, name, hook) do
@@ -50,18 +53,18 @@ end
 # --- add an anonymous handler ---
 
 def add_anonymous_args(_state) do
-  [hook_name, choose(0, 3), :eqc_gen.noshrink(choose(1, 1000)), sequence_number]
+  [hook_name, host, choose(0, 3), :eqc_gen.noshrink(choose(1, 1000)), sequence_number]
 end
 
 # Don't add more than one hook with the same sequence number. The system allows
 # that but does a usort on the hooks when running them, which gets super weird
 # for anonymous functions.
-def add_anonymous_pre(state, [name, _, _, seq]) do
-  not :lists.keymember(seq, 2, get_hooks(state, name))
+def add_anonymous_pre(state, [name, _, _, _, seq]) do
+  not :lists.keymember(seq, 1, get_hooks(state, name))
 end
 
-def add_anonymous(name, arity, id, seq) do
-  :ejabberd_hooks.add(name, @host, anonymous_fun(name, arity, id, seq), seq)
+def add_anonymous(name, host, arity, id, seq) do
+  :ejabberd_hooks.add(name, host, anonymous_fun(name, arity, id, seq), seq)
 end
 
 def anonymous_fun(name, arity, id, seq) do
@@ -73,8 +76,8 @@ def anonymous_fun(name, arity, id, seq) do
   end
 end
 
-def add_anonymous_next(state, _, [name, arity, id, seq]) do
-  add_hook(state, name, {:fun, seq, id, arity})
+def add_anonymous_next(state, _, [name, host, arity, id, seq]) do
+  add_hook(state, name, {seq, %{type: :fun, id: id, arity: arity, host: host}})
 end
 
 # -- add an mf -------------------------------------------------------------
@@ -85,27 +88,28 @@ def mf_arity(:fun2), do: 2
 def mf_arity(:fun3), do: 3
 
 def add_mf_args(_state) do
-  [hook_name, elements([:fun0, :fun1, :fun2, :fun3]), sequence_number]
+  [hook_name, host, elements([:fun0, :fun1, :fun2, :fun3]), sequence_number]
 end
 
-def add_mf_pre(state, [name, _fun, seq]) do
-  not :lists.keymember(seq, 2, get_hooks(state, name))
+def add_mf_pre(state, [name, _host, _fun, seq]) do
+  not :lists.keymember(seq, 1, get_hooks(state, name))
 end
 
-def add_mf(name, fun, seq) do
-  :ejabberd_hooks.add(name, @host, :hook, fun, seq)
+def add_mf(name, host, fun, seq) do
+  :ejabberd_hooks.add(name, host, :hook, fun, seq)
 end
 
-def add_mf_next(state, _, [name, fun, seq]) do
-  add_hook(state, name, {:mf, seq, fun, mf_arity(fun)})
+def add_mf_next(state, _, [name, host, fun, seq]) do
+  add_hook(state, name, {seq, %{type: :mf, mod: :hook, fun: fun, arity: mf_arity(fun), host: host}})
 end
 
 # -- delete a hook ----------------------------------------------------------
 
 def delete_args(state) do
-  let {name, hooks}          <- elements(Map.to_list(state.hooks)) do
-  let {type, seq, id, arity} <- elements(hooks) do
-    return([name, type, seq, id, arity])
+  let {name, hooks} <- elements(Map.to_list(state.hooks)) do
+  let {seq, h}      <- elements(hooks) do
+    id = case h.type do :fun -> h.id; :mf -> {h.mod, h.fun} end
+    [name, host, h.type, seq, id, h.arity]
   end end
 end
 
@@ -113,39 +117,38 @@ def delete_pre(state) do
   %{} != state.hooks
 end
 
-def delete_pre(state, [name, type, seq, id, arity]) do
-  {type, seq, id, arity} in get_hooks(state, name)
+def delete(name, host, :fun, seq, id, arity) do
+  :ejabberd_hooks.delete(name, host, anonymous_fun(name, arity, id, seq), seq)
+end
+def delete(name, host, :mf, seq, {mod, fun}, _arity) do
+  :ejabberd_hooks.delete(name, host, mod, fun, seq)
 end
 
-def delete(name, :fun, seq, id, arity) do
-  :ejabberd_hooks.delete(name, @host, anonymous_fun(name, arity, id, seq), seq)
+def delete_next(state, _, [name, host, :mf, seq, {mod, fun}, arity]) do
+  delete_hook(state, name, {seq, %{type: :mf, mod: mod, fun: fun, arity: arity, host: host}})
 end
-def delete(name, :mf, seq, fun, _arity) do
-  :ejabberd_hooks.delete(name, @host, :hook, fun, seq)
-end
-
-def delete_next(state, _, [name, type, seq, id, arity]) do
-  delete_hook(state, name, {type, seq, id, arity})
+def delete_next(state, _, [name, host, :fun, seq, id, arity]) do
+  delete_hook(state, name, {seq, %{type: :fun, id: id, arity: arity, host: host}})
 end
 
 # --- running a handler ---
 
-def run_args(_state), do: [hook_name, run_params]
+def run_args(_state), do: [hook_name, host, run_params]
 
-def run(hookname, params) do
-  :ejabberd_hooks.run(hookname, @host, params)
+def run(name, host, params) do
+  :ejabberd_hooks.run(name, host, params)
 end
 
-def run_callouts(state, [name, args]) do
-  call call_hooks(name, args, get_hooks(state, name, length(args)))
+def run_callouts(state, [name, host, args]) do
+  call call_hooks(name, args, get_hooks(state, name, host, length(args)))
 end
 
 def call_hooks_callouts(_state, [_name, _, []]), do: :empty
-def call_hooks_callouts(_state, [name, args, [{type, seq, id, _arity}|hooks]]) do
+def call_hooks_callouts(_state, [name, args, [{seq, hook}|hooks]]) do
   match res =
-    case type do
-      :mf  -> callout(:hook, id, args, hook_result)
-      :fun -> callout :hook.anon(name, seq, args, id), return: hook_result
+    case hook.type do
+      :mf  -> callout(hook.mod, hook.fun, args, hook_result)
+      :fun -> callout :hook.anon(name, seq, args, hook.id), return: hook_result
     end
   case res do
     :stop -> :empty
@@ -153,30 +156,26 @@ def call_hooks_callouts(_state, [name, args, [{type, seq, id, _arity}|hooks]]) d
   end
 end
 
-def run_post(_state, [_name, _args], res) do
-  eq(res, :ok)
-end
-
 # -- run_fold ---------------------------------------------------------------
 
 def run_fold_args(_state) do
-  [hook_name, arg, run_params(1)]
+  [hook_name, host, arg, run_params(1)]
 end
 
-def run_fold(name, val, args) do
-  :ejabberd_hooks.run_fold(name, @host, val, args)
+def run_fold(name, host, val, args) do
+  :ejabberd_hooks.run_fold(name, host, val, args)
 end
 
-def run_fold_callouts(state, [name, val, args]) do
-  call fold_hooks(name, val, args, get_hooks(state, name, length(args) + 1))
+def run_fold_callouts(state, [name, host, val, args]) do
+  call fold_hooks(name, val, args, get_hooks(state, name, host, length(args) + 1))
 end
 
 def fold_hooks_callouts(_state, [_name, val, _, []]), do: {:return, val}
-def fold_hooks_callouts(_state, [name, val, args, [{type, seq, id, _arity}|hooks]]) do
+def fold_hooks_callouts(_state, [name, val, args, [{seq, hook}|hooks]]) do
   match res =
-    case type do
-      :mf  -> callout(:hook, id, [val|args], hook_result)
-      :fun -> callout :hook.anon(name, seq, [val|args], id), return: hook_result
+    case hook.type do
+      :mf  -> callout(hook.mod, hook.fun, [val|args], hook_result)
+      :fun -> callout :hook.anon(name, seq, [val|args], hook.id), return: hook_result
     end
   case res do
     :stop        -> {:return, :stopped}
@@ -185,36 +184,37 @@ def fold_hooks_callouts(_state, [name, val, args, [{type, seq, id, _arity}|hooks
   end
 end
 
-def run_fold_post(_state, [_name, _val, _args], res, meta) do
-  eq(res, :proplists.get_value(:res, meta, :ok))
-end
-
 # --- get info on a handler ---
 
-def get_args(_state), do: [ hook_name ]
+def get_args(_state), do: [hook_name, host]
 
-def get(hookname) do
-  :ejabberd_hooks.get_handlers(hookname, @host)
+def get(name, host) do
+  :ejabberd_hooks.get_handlers(name, host)
 end
 
-def get_post(state, [name], res) do
-  expected = for {_, seq, _, _} <- get_hooks(state, name), do: seq
-  actual   = for r <- res do
-               case r do
-                {seq, :undefined, fun} when is_function(fun) -> seq
-                {seq, :hook, _}                              -> seq
-                _                                            -> :bad
-               end end
-  :eqc_statem.conj([:eqc_statem.eq(length(res), length(expected)),
-                    :eqc_statem.eq(actual, expected)])
+def get_return(state, [name, host]) do
+  for {seq, hook} <- get_hooks(state, name, host) do
+    case hook.type do
+      :fun -> {seq, :undefined, anonymous_fun(name, hook.arity, hook.id, seq)}
+      :mf  -> {seq, hook.mod, hook.fun}
+    end
+  end
 end
 
-# -- Property ---------------------------------------------------------------
+# -- Common -----------------------------------------------------------------
+
+def postcondition_common(state, call, res) do
+  eq(res, return_value(state, call))
+end
+
+# -- Weights ----------------------------------------------------------------
 
 weight _hooks,
   add_anonymous: 1,
   get:           1,
   run:           1
+
+# -- Property ---------------------------------------------------------------
 
 property "Ejabberd Hooks" do
   # :eqc_statem.show_states(
