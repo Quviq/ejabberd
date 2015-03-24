@@ -12,12 +12,14 @@ def hook_name,       do: elements [:hook1, :hook2, :hook3]
 def hook_result,     do: elements [:ok, :stop, :error, exception(:fail)]
 def run_params,      do: run_params(2)
 def run_params(n),   do: :eqc_gen.list(n, arg)
-def sequence_number, do: choose(0, 100)
+def sequence_number, do: choose(0, 20)
 def host,            do: elements [:global, 'domain.net']
+def hook_module,     do: elements [:hook, :zook]
+def hook_fun,        do: elements [:fun0, :fun1, :fun2]
+def handler,         do: oneof [{hook_module, hook_fun}, {:fn, choose(0, 2), arg}]
 
 # -- State ------------------------------------------------------------------
 
-## use maps Elixir has maps anyway and testing is done on R17
 def initial_state, do: %{hooks: %{}}
 
 def get_hooks(state, name) do
@@ -32,40 +34,40 @@ def get_hooks(state, name, host) do
 end
 
 def get_hooks(state, name, host, arity) do
-  for h={_, d} <- get_hooks(state, name, host), d.arity == arity, do: h
+  for h={_, d} <- get_hooks(state, name, host), get_arity(d.fun) == arity, do: h
 end
 
-def add_hook(state, name, hook) do
-  hooks = get_hooks(state, name)
-  %{state | hooks: Map.put(state.hooks, name, :lists.keymerge(1, hooks, [hook]))}
-end
-
-def delete_hook(state, name, hook) do
-  hooks = get_hooks(state, name) -- [hook]
-  case hooks do
-    [] -> %{state | hooks: Map.delete(state.hooks, name)}
-    _  -> %{state | hooks: Map.put(state.hooks, name, hooks)}
+# This computes the unique key according to which handlers are ordered.
+# There can be at most one handler with the same key for a given hook. This
+# ordering is a little bit unpredictable for anonymous handlers since they are
+# compared on the 'fun' values when they have the same sequence number.
+def hook_ref(name, {seq, hook}) do
+  case hook.fun do
+    {:fn, arity, id} -> {hook.host, seq, :undefined, anonymous_fun(name, arity, id, seq)}
+    {mod, fun}       -> {hook.host, seq, mod, fun}
   end
 end
 
-# -- Commands ---------------------------------------------------------------
-
-# --- add an anonymous handler ---
-
-def add_anonymous_args(_state) do
-  [hook_name, host, choose(0, 3), :eqc_gen.noshrink(choose(1, 1000)), sequence_number]
+def add_hook(state, name, hook) do
+  new_hooks = :lists.usort(fn(h1, h2) -> hook_ref(name, h1) <= hook_ref(name, h2) end,
+                           [hook|get_hooks(state, name)])
+  %{state | hooks: Map.put(state.hooks, name, new_hooks)}
 end
 
-# Don't add more than one hook with the same sequence number. The system allows
-# that but does a usort on the hooks when running them, which gets super weird
-# for anonymous functions.
-def add_anonymous_pre(state, [name, _, _, _, seq]) do
-  not :lists.keymember(seq, 1, get_hooks(state, name))
+def filter_hooks(state, name, pred) do
+  new_hooks = :lists.filter(fn({seq, h}) -> pred.(seq, h) end, get_hooks(state, name))
+  case new_hooks do
+    [] -> %{state | hooks: Map.delete(state.hooks, name)}
+    _  -> %{state | hooks: Map.put(state.hooks, name, new_hooks)}
+  end
 end
 
-def add_anonymous(name, host, arity, id, seq) do
-  :ejabberd_hooks.add(name, host, anonymous_fun(name, arity, id, seq), seq)
+def delete_hook(state, name, hook) do
+  filter_hooks(state, name, fn(seq, h) -> {seq, h} != hook end)
 end
+
+def get_arity({mod, fun}),      do: get_api_arity(mod, fun)
+def get_arity({:fn, arity, _}), do: arity
 
 def anonymous_fun(name, arity, id, seq) do
   case arity do
@@ -76,31 +78,21 @@ def anonymous_fun(name, arity, id, seq) do
   end
 end
 
-def add_anonymous_next(state, _, [name, host, arity, id, seq]) do
-  add_hook(state, name, {seq, %{type: :fun, id: id, arity: arity, host: host}})
+# -- Commands ---------------------------------------------------------------
+
+# --- add a handler ---
+
+def add_args(_state), do: [hook_name, host, handler, sequence_number]
+
+def add(name, host, {:fn, arity, id}, seq) do
+  :ejabberd_hooks.add(name, host, anonymous_fun(name, arity, id, seq), seq)
+end
+def add(name, host, {mod, fun}, seq) do
+  :ejabberd_hooks.add(name, host, mod, fun, seq)
 end
 
-# -- add an mf -------------------------------------------------------------
-
-def mf_arity(:fun0), do: 0
-def mf_arity(:fun1), do: 1
-def mf_arity(:fun2), do: 2
-def mf_arity(:fun3), do: 3
-
-def add_mf_args(_state) do
-  [hook_name, host, elements([:fun0, :fun1, :fun2, :fun3]), sequence_number]
-end
-
-def add_mf_pre(state, [name, _host, _fun, seq]) do
-  not :lists.keymember(seq, 1, get_hooks(state, name))
-end
-
-def add_mf(name, host, fun, seq) do
-  :ejabberd_hooks.add(name, host, :hook, fun, seq)
-end
-
-def add_mf_next(state, _, [name, host, fun, seq]) do
-  add_hook(state, name, {seq, %{type: :mf, mod: :hook, fun: fun, arity: mf_arity(fun), host: host}})
+def add_next(state, _, [name, host, fun, seq]) do
+  add_hook(state, name, {seq, %{host: host, fun: fun}})
 end
 
 # -- delete a hook ----------------------------------------------------------
@@ -108,8 +100,7 @@ end
 def delete_args(state) do
   let {name, hooks} <- elements(Map.to_list(state.hooks)) do
   let {seq, h}      <- elements(hooks) do
-    id = case h.type do :fun -> h.id; :mf -> {h.mod, h.fun} end
-    [name, host, h.type, seq, id, h.arity]
+    [name, host, h.fun, seq]
   end end
 end
 
@@ -117,18 +108,15 @@ def delete_pre(state) do
   %{} != state.hooks
 end
 
-def delete(name, host, :fun, seq, id, arity) do
+def delete(name, host, {:fn, arity, id}, seq) do
   :ejabberd_hooks.delete(name, host, anonymous_fun(name, arity, id, seq), seq)
 end
-def delete(name, host, :mf, seq, {mod, fun}, _arity) do
+def delete(name, host, {mod, fun}, seq) do
   :ejabberd_hooks.delete(name, host, mod, fun, seq)
 end
 
-def delete_next(state, _, [name, host, :mf, seq, {mod, fun}, arity]) do
-  delete_hook(state, name, {seq, %{type: :mf, mod: mod, fun: fun, arity: arity, host: host}})
-end
-def delete_next(state, _, [name, host, :fun, seq, id, arity]) do
-  delete_hook(state, name, {seq, %{type: :fun, id: id, arity: arity, host: host}})
+def delete_next(state, _, [name, host, fun, seq]) do
+  delete_hook(state, name, {seq, %{host: host, fun: fun}})
 end
 
 # --- running a handler ---
@@ -146,9 +134,9 @@ end
 def call_hooks_callouts(_state, [_name, _, []]), do: :empty
 def call_hooks_callouts(_state, [name, args, [{seq, hook}|hooks]]) do
   match res =
-    case hook.type do
-      :mf  -> callout(hook.mod, hook.fun, args, hook_result)
-      :fun -> callout :hook.anon(name, seq, args, hook.id), return: hook_result
+    case hook.fun do
+      {mod, fun}   -> callout(mod, fun, args, hook_result)
+      {:fn, _, id} -> callout :hook.anon(name, seq, args, id), return: hook_result
     end
   case res do
     :stop -> :empty
@@ -173,9 +161,9 @@ end
 def fold_hooks_callouts(_state, [_name, val, _, []]), do: {:return, val}
 def fold_hooks_callouts(_state, [name, val, args, [{seq, hook}|hooks]]) do
   match res =
-    case hook.type do
-      :mf  -> callout(hook.mod, hook.fun, [val|args], hook_result)
-      :fun -> callout :hook.anon(name, seq, [val|args], hook.id), return: hook_result
+    case hook.fun do
+      {mod, fun}   -> callout(mod, fun, [val|args], hook_result)
+      {:fn, _, id} -> callout :hook.anon(name, seq, [val|args], id), return: hook_result
     end
   case res do
     :stop        -> {:return, :stopped}
@@ -194,9 +182,9 @@ end
 
 def get_return(state, [name, host]) do
   for {seq, hook} <- get_hooks(state, name, host) do
-    case hook.type do
-      :fun -> {seq, :undefined, anonymous_fun(name, hook.arity, hook.id, seq)}
-      :mf  -> {seq, hook.mod, hook.fun}
+    case hook.fun do
+      {:fn, arity, id} -> {seq, :undefined, anonymous_fun(name, arity, id, seq)}
+      {mod, fun}       -> {seq, mod, fun}
     end
   end
 end
@@ -237,16 +225,34 @@ end
 def api_spec do
   EQC.Mocking.api_spec [
     modules: [
-      EQC.Mocking.api_module name: :hook,
+      EQC.Mocking.api_module(name: :hook,
         functions:
           [ EQC.Mocking.api_fun(name: :anon,       arity: 4),
             EQC.Mocking.api_fun(name: :fun0,       arity: 0),
             EQC.Mocking.api_fun(name: :fun1,       arity: 1),
-            EQC.Mocking.api_fun(name: :fun2,       arity: 2),
-            EQC.Mocking.api_fun(name: :fun3,       arity: 3) ]
+            EQC.Mocking.api_fun(name: :fun2,       arity: 2) ]),
+      EQC.Mocking.api_module(name: :zook,
+        functions:
+          [ EQC.Mocking.api_fun(name: :fun0,       arity: 0),
+            EQC.Mocking.api_fun(name: :fun1,       arity: 1),
+            EQC.Mocking.api_fun(name: :fun2,       arity: 2) ])
     ]
   ]
 end
 
+def get_api_arity(mod, fun) do
+  as =
+    for m <- EQC.Mocking.api_spec(api_spec)[:modules],
+        EQC.Mocking.api_module(m, :name) == mod,
+        f <- EQC.Mocking.api_module(m, :functions),
+        EQC.Mocking.api_fun(f, :name) == fun do
+      EQC.Mocking.api_fun(f, :arity)
+    end
+  case as do
+    [a] -> a
+    []  -> :erlang.error({:not_in_api_spec, mod, fun})
+    _   -> :erlang.error({:ambiguous_arity, mod, fun, as})
+  end
+end
 
 end
