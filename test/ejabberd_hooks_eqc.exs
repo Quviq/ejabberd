@@ -20,7 +20,9 @@ def handler,         do: oneof [{hook_module, hook_fun}, {:fn, choose(0, 2), arg
 
 # -- State ------------------------------------------------------------------
 
-def initial_state, do: %{hooks: %{}}
+# hooks_with_past_handlers are used to model the buggy behaviour of
+# get_hooks_with_handlers (see below).
+def initial_state, do: %{hooks: %{}, hooks_with_past_handlers: %{}}
 
 def get_hooks(state, name) do
   case Map.fetch(state.hooks, name) do
@@ -51,7 +53,8 @@ end
 def add_hook(state, name, hook) do
   new_hooks = :lists.usort(fn(h1, h2) -> hook_ref(name, h1) <= hook_ref(name, h2) end,
                            [hook|get_hooks(state, name)])
-  %{state | hooks: Map.put(state.hooks, name, new_hooks)}
+  %{state | hooks: Map.put(state.hooks, name, new_hooks),
+            hooks_with_past_handlers: Map.put(state.hooks_with_past_handlers, name, true) }
 end
 
 def filter_hooks(state, name, pred) do
@@ -202,6 +205,16 @@ def get_return(state, [name, host]) do
     end
   end
 end
+
+# -- get_hooks_with_handlers ------------------------------------------------
+
+def get_hooks_with_handlers_args(_state), do: []
+
+def get_hooks_with_handlers, do: :ejabberd_hooks.get_hooks_with_handlers
+
+# BUG: get_hooks_with_handlers returns hooks that have had handlers at some
+#      point. They don't necessarily have any handlers at the moment.
+def get_hooks_with_handlers_return(state, []), do: Map.keys state.hooks_with_past_handlers
 
 # -- Common -----------------------------------------------------------------
 
