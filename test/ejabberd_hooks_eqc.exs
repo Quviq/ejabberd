@@ -7,16 +7,16 @@ require EQC.Mocking
 
 # -- Generators -------------------------------------------------------------
 
-def arg,             do: elements [:a, :b, :c, :d, :e]
-def hook_name,       do: elements [:hook1, :hook2, :hook3]
-def hook_result,     do: elements [:ok, :stop, :error, exception(:fail)]
-def run_params,      do: run_params(2)
-def run_params(n),   do: :eqc_gen.list(n, arg)
-def sequence_number, do: choose(0, 20)
-def host,            do: elements [:global, 'domain.net']
-def hook_module,     do: elements [:hook, :zook]
-def hook_fun,        do: elements [:fun0, :fun1, :fun2]
-def handler,         do: oneof [{hook_module, hook_fun}, {:fn, choose(0, 2), arg}]
+def gen_arg,             do: elements [:a, :b, :c, :d, :e]
+def gen_hook_name,       do: elements [:hook1, :hook2, :hook3]
+def gen_hook_result,     do: elements [:ok, :stop, :error, exception(:fail)]
+def gen_run_params,      do: gen_run_params(2)
+def gen_run_params(n),   do: :eqc_gen.list(n, gen_arg)
+def gen_sequence_number, do: choose(0, 20)
+def gen_host,            do: elements [:global, 'domain.net']
+def gen_hook_module,     do: elements [:hook, :zook]
+def gen_hook_fun,        do: elements [:fun0, :fun1, :fun2]
+def gen_handler,         do: oneof [{gen_hook_module, gen_hook_fun}, {:fn, choose(0, 2), gen_arg}]
 
 # -- State ------------------------------------------------------------------
 
@@ -85,7 +85,7 @@ end
 
 # --- add a handler ---
 
-def add_args(_state), do: [hook_name, host, handler, sequence_number]
+def add_args(_state), do: [gen_hook_name, gen_host, gen_handler, gen_sequence_number]
 
 def add(name, host, {:fn, arity, id}, seq) do
   :ejabberd_hooks.add(name, host, anonymous_fun(name, arity, id, seq), seq)
@@ -124,7 +124,7 @@ end
 
 # -- removing all hooks for a module ----------------------------------------
 
-def remove_module_handlers_args(_state), do: [hook_name, host, hook_module]
+def remove_module_handlers_args(_state), do: [gen_hook_name, gen_host, gen_hook_module]
 
 def remove_module_handlers(name, host, module) do
   :ejabberd_hooks.remove_module_handlers(name, host, module)
@@ -138,7 +138,7 @@ end
 
 # --- running a handler ---
 
-def run_args(_state), do: [hook_name, host, run_params]
+def run_args(_state), do: [gen_hook_name, gen_host, gen_run_params]
 
 def run(name, host, params) do
   :ejabberd_hooks.run(name, host, params)
@@ -152,8 +152,8 @@ def call_hooks_callouts(_state, [_name, _, []]), do: :empty
 def call_hooks_callouts(_state, [name, args, [{seq, hook}|hooks]]) do
   match res =
     case hook.fun do
-      {mod, fun}   -> callout(mod, fun, args, hook_result)
-      {:fn, _, id} -> callout :hook.anon(name, seq, args, id), return: hook_result
+      {mod, fun}   -> callout(mod, fun, args, gen_hook_result)
+      {:fn, _, id} -> callout :hook.anon(name, seq, args, id), return: gen_hook_result
     end
   case res do
     :stop -> :empty
@@ -164,7 +164,7 @@ end
 # -- run_fold ---------------------------------------------------------------
 
 def run_fold_args(_state) do
-  [hook_name, host, arg, run_params(1)]
+  [gen_hook_name, gen_host, gen_arg, gen_run_params(1)]
 end
 
 def run_fold(name, host, val, args) do
@@ -179,8 +179,8 @@ def fold_hooks_callouts(_state, [_name, val, _, []]), do: {:return, val}
 def fold_hooks_callouts(_state, [name, val, args, [{seq, hook}|hooks]]) do
   match res =
     case hook.fun do
-      {mod, fun}   -> callout(mod, fun, [val|args], hook_result)
-      {:fn, _, id} -> callout :hook.anon(name, seq, [val|args], id), return: hook_result
+      {mod, fun}   -> callout(mod, fun, [val|args], gen_hook_result)
+      {:fn, _, id} -> callout :hook.anon(name, seq, [val|args], id), return: gen_hook_result
     end
   case res do
     :stop        -> {:return, :stopped}
@@ -191,7 +191,7 @@ end
 
 # --- get info on a handler ---
 
-def get_args(_state), do: [hook_name, host]
+def get_args(_state), do: [gen_hook_name, gen_host]
 
 def get(name, host) do
   :ejabberd_hooks.get_handlers(name, host)
