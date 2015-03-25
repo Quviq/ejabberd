@@ -60,5 +60,5 @@ c2s_stream_features(Host, _State, Arg) ->
     ejabberd_hooks:run_fold(c2s_stream_features, Host, [], Arg).
 
 %% all() will be added at compile time by parse_transform
-%% It return the list of core hooks alongs with there specifications
+%% It return the list of core hooks alongs with their specifications
 %% as a list of hooks records
