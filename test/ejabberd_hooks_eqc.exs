@@ -8,10 +8,13 @@ require Record
 
 # -- Generators -------------------------------------------------------------
 
-# I couldn't make Record.extract find ejabberd_hooks.hrl.
+Record.defrecord Hook, Record.extract(:hook, from_lib: "ejabberd/include/ejabberd_hooks.hrl")
+require Hook
+
 def core_hooks() do
-  for {:hook, name, _, arity, _, _} <- :ejabberd_hooks_core.all() do
-    {name, arity}
+  for h <- :ejabberd_hooks_core.all() do
+		kvs = Hook.hook(h)
+		{kvs[:name], kvs[:arity]}
   end
 end
 
