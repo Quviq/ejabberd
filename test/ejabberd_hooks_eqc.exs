@@ -8,13 +8,12 @@ require Record
 
 # -- Generators -------------------------------------------------------------
 
-Record.defrecord Hook, Record.extract(:hook, from_lib: "ejabberd/include/ejabberd_hooks.hrl")
-require Hook
+Record.defrecord :hook, Record.extract(:hook, from_lib: "ejabberd/include/ejabberd_hooks.hrl")
 
 def core_hooks() do
   for h <- :ejabberd_hooks_core.all() do
-		kvs = Hook.hook(h)
-		{kvs[:name], kvs[:arity]}
+    kvs = hook(h)
+    {kvs[:name], kvs[:arity]}
   end
 end
 
