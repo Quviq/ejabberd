@@ -164,7 +164,7 @@ Config = [{erl_opts, Macros ++ HiPE ++ DebugInfo ++
           {erl_first_files, ["src/ejabberd_hooks_transform.erl"]},
           {sub_dirs, ["rel"]},
           {keep_build_info, true},
-          {ct_extra_params, "-include "
+          {ct_extra_params, "-logopts no_nl -include "
            ++ filename:join([Cwd, "tools"])},
 	  {xref_warnings, false},
           {xref_checks, []},
