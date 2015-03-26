@@ -25,7 +25,7 @@ all() ->
     case is_elixir_available() of
         true ->
             Dir = test_dir(),
-            filelib:fold_files(Dir, ".*\.exs", false,
+            filelib:fold_files(Dir, "\.exs$", false,
                                fun(Filename, Acc) -> [list_to_atom(filename:basename(Filename)) | Acc] end,
                                []);
         false ->
