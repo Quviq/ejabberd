@@ -90,7 +90,7 @@ end
 
 def this_host() do
   [_, host] = :string.tokens(:erlang.atom_to_list(node), '@')
-  host
+  :erlang.list_to_atom(host)
 end
 
 def mk_node(name),       do: mk_node(name, this_host)
@@ -440,7 +440,7 @@ end
 def setup() do
   :eqc_mocking.start_mocking(api_spec)
   for name <- child_nodes do
-    :slave.start(this_host(), name)
+    :ct_slave.start(this_host(), name)
     :rpc.call(mk_node(name), :eqc_mocking, :start_mocking, [api_spec])
   end
 end
