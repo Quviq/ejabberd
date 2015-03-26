@@ -49,7 +49,7 @@ end
 def gen_run_params,      do: gen_run_params(@max_params)
 def gen_run_params(n),   do: :eqc_gen.list(n, gen_arg)
 def gen_sequence_number, do: choose(0, 20)
-def gen_host,            do: elements [:global, this_host]
+def gen_host,            do: elements [:no_host, :global, this_host]
 def gen_node,            do: elements [this_node() | child_nodes()]
 def gen_module,          do: elements [:handlers, :zandlers]
 def gen_fun_name,        do: elements [:fun0, :fun1, :fun2, :fun3, :funX]
@@ -174,6 +174,9 @@ end
 defp mk_list(xs) when is_list(xs), do: xs
 defp mk_list(x), do: [x]
 
+defp mk_host(:no_host), do: :global
+defp mk_host(h),        do: h
+
 # -- Commands ---------------------------------------------------------------
 
 # --- add a handler ---
@@ -188,6 +191,12 @@ end
 def add_pre(_state, [name, _, {_, :funX}, _]), do: nil == core_hooks()[name]
 def add_pre(_state, _args), do: true
 
+def add(name, :no_host, {:fn, arity, id}, seq) do
+  :ejabberd_hooks.add(name, anonymous_fun(name, arity, id, seq), seq)
+end
+def add(name, :no_host, {mod, fun}, seq) do
+  :ejabberd_hooks.add(name, mod, fun, seq)
+end
 def add(name, host, {:fn, arity, id}, seq) do
   :ejabberd_hooks.add(name, host, anonymous_fun(name, arity, id, seq), seq)
 end
@@ -197,7 +206,7 @@ end
 
 def add_callouts(_state, [name, host, fun, seq]) do
   case check_fun(name, fun) do
-    :ok -> call do_add(name, %{host: host, fun: fun}, seq)
+    :ok -> call do_add(name, %{host: mk_host(host), fun: fun}, seq)
     err -> {:return, err}
   end
 end
@@ -218,13 +227,16 @@ end
 def add_dist_pre(_state, [name, _, _, _, :funX, _]), do: nil == core_hooks()[name]
 def add_dist_pre(_state, _args), do: true
 
+def add_dist(name, :no_host, node, mod, fun, seq) do
+  :ejabberd_hooks.add_dist(name, mk_node(node), mod, fun, seq)
+end
 def add_dist(name, host, node, mod, fun, seq) do
   :ejabberd_hooks.add_dist(name, host, mk_node(node), mod, fun, seq)
 end
 
 def add_dist_callouts(_state, [name, host, node, mod, fun, seq]) do
   case check_fun(name, {mod, fun}) do
-    :ok -> call do_add(name, %{host: host, node: node, fun: {mod, fun}}, seq)
+    :ok -> call do_add(name, %{host: mk_host(host), node: node, fun: {mod, fun}}, seq)
     err -> {:return, err}
   end
 end
@@ -245,32 +257,46 @@ def delete_pre(state) do
   %{} != state.hooks
 end
 
+def delete(name, :no_host, {:fn, arity, id}, seq) do
+  :ejabberd_hooks.delete(name, anonymous_fun(name, arity, id, seq), seq)
+end
+def delete(name, :no_host, {mod, fun}, seq) do
+  :ejabberd_hooks.delete(name, mod, fun, seq)
+end
 def delete(name, host, {:fn, arity, id}, seq) do
   :ejabberd_hooks.delete(name, host, anonymous_fun(name, arity, id, seq), seq)
 end
 def delete(name, host, {mod, fun}, seq) do
   :ejabberd_hooks.delete(name, host, mod, fun, seq)
 end
+
+def delete(name, :no_host, node, {mod, fun}, seq) do
+  :ejabberd_hooks.delete_dist(name, mk_node(node), mod, fun, seq)
+end
 def delete(name, host, node, {mod, fun}, seq) do
   :ejabberd_hooks.delete_dist(name, host, mk_node(node), mod, fun, seq)
 end
 
 def delete_next(state, _, [name, host, fun, seq]) do
-  delete_handler(state, name, %{host: host, fun: fun}, seq)
+  delete_handler(state, name, %{host: mk_host(host), fun: fun}, seq)
 end
 def delete_next(state, _, [name, host, node, fun, seq]) do
-  delete_handler(state, name, %{host: host, node: node, fun: fun}, seq)
+  delete_handler(state, name, %{host: mk_host(host), node: node, fun: fun}, seq)
 end
 
 # --- removing all handlers for a module ---
 
 def remove_module_handlers_args(_state), do: [gen_hook_name, gen_host, gen_module]
 
+def remove_module_handlers(name, :no_host, module) do
+  :ejabberd_hooks.remove_module_handlers(name, module)
+end
 def remove_module_handlers(name, host, module) do
   :ejabberd_hooks.remove_module_handlers(name, host, module)
 end
 
-def remove_module_handlers_next(state, _, [name, host, module]) do
+def remove_module_handlers_next(state, _, [name, host0, module]) do
+  host = mk_host(host0)
   filter_handlers(state, name,
     fn (_, %{host: h}) when h != host -> true
        (_, %{fun: {mod, _}})          -> mod != module
@@ -281,9 +307,8 @@ end
 
 def run_args(_state), do: [gen_hook_name, gen_host, gen_run_params]
 
-def run(name, host, params) do
-  :ejabberd_hooks.run(name, host, params)
-end
+def run(name, :no_host, params), do: :ejabberd_hooks.run(name, params)
+def run(name, host, params),     do: :ejabberd_hooks.run(name, host, params)
 
 def run_callouts(state, [name, host, args0]) do
   args = mk_list(args0)
@@ -291,7 +316,7 @@ def run_callouts(state, [name, host, args0]) do
     fn(_, :stop) -> {:stop, :ok}
       (args, _)  -> args end,
     fn(_) -> :ok end,
-    args, get_handlers(state, name, host, length(args)))
+    args, get_handlers(state, name, mk_host(host), length(args)))
 end
 
 # --- run_fold ---
@@ -303,9 +328,8 @@ def run_fold_args(_state) do
   [gen_hook_name, gen_host, gen_arg, args]
 end
 
-def run_fold(name, host, val, args) do
-  :ejabberd_hooks.run_fold(name, host, val, args)
-end
+def run_fold(name, :no_host, val, args), do: :ejabberd_hooks.run_fold(name, val, args)
+def run_fold(name, host, val, args),     do: :ejabberd_hooks.run_fold(name, host, val, args)
 
 def run_fold_callouts(state, [name, host, val, args0]) do
   args = mk_list(args0)
@@ -314,7 +338,7 @@ def run_fold_callouts(state, [name, host, val, args0]) do
       (_, {:stop, val}) -> {:stop, val}
       ([_|args], res)   -> [res|args] end,
     fn([val|_]) -> val end, [val|args],
-    get_handlers(state, name, host, length(args) + 1))
+    get_handlers(state, name, mk_host(host), length(args) + 1))
 end
 
 # This helper command generalises run and run_fold. It takes two functions:
@@ -343,12 +367,11 @@ end
 
 def get_args(_state), do: [gen_hook_name, gen_host]
 
-def get(name, host) do
-  :ejabberd_hooks.get_handlers(name, host)
-end
+def get(name, :no_host), do: :ejabberd_hooks.get_handlers(name)
+def get(name, host),     do: :ejabberd_hooks.get_handlers(name, host)
 
 def get_return(state, [name, host]) do
-  for h <- get_handlers(state, name, host) do
+  for h <- get_handlers(state, name, mk_host(host)) do
     {_, key} = handler_key(name, h)
     key
   end
