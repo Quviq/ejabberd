@@ -6,6 +6,21 @@ use EQC.Component
 require EQC.Mocking
 require Record
 
+# -- Issues -----------------------------------------------------------------
+
+# - get_hooks_with_handlers returns hooks that have had handlers at some point,
+#   not just hooks that currently have handlers.
+
+# - The arity check for core_hooks doesn't work if the same handler is defined
+#   for multiple arities.
+
+# - Sorting handlers with the same sequence number on the fun value leads to
+#   somewhat unpredictable behaviour.
+
+# - The check if a module:function handler exists is done on the node where
+#   ejabberd runs, not on the node where the function is supposed to run. It's
+#   conceivable that you might have different code on different nodes.
+
 # -- Generators -------------------------------------------------------------
 
 Record.defrecord :hook, Record.extract(:hook, from_lib: "ejabberd/include/ejabberd_hooks.hrl")
