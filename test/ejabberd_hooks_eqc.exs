@@ -56,6 +56,19 @@ def gen_fun_name,        do: elements [:fun0, :fun1, :fun2, :fun3, :funX]
 def gen_handler,         do: oneof [{gen_module, gen_fun_name}, {:fn, choose(0, @max_params), gen_arg}]
 def gen_faulty_handler,  do: oneof [{:bad_module, gen_fun_name}, {gen_module, :bad_fun}]
 
+# Used in delete to test deleting things we haven't added.
+defp gen_any_handler() do
+  set_node = fn(nil, h) -> h; (n, h) -> Map.put(h, :node, n) end
+  let {seq, host, fun} <- {gen_sequence_number, gen_host, gen_handler} do
+    h = %{host: host, fun: fun}
+    case fun do
+      {:fn, _, _} -> return {seq, h}
+      _ -> let node <- weighted_default({2, nil}, {1, gen_node}) do
+             return {seq, set_node.(node, h)}
+           end
+    end end
+end
+
 # -- Distribution -----------------------------------------------------------
 
 def child_nodes, do: [:node1, :node2]
@@ -220,7 +233,7 @@ end
 
 def delete_args(state) do
   let {name, handlers} <- elements(Map.to_list(state.hooks)) do
-  let {seq, h}         <- elements(handlers) do
+  let {seq, h}         <- fault(gen_any_handler, elements(handlers)) do
     case Map.has_key?(h, :node) do
       true  -> return [name, h.host, h.node, h.fun, seq]
       false -> return [name, h.host, h.fun, seq]
