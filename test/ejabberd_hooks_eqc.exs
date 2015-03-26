@@ -33,6 +33,7 @@ def core_hooks() do
 end
 
 @max_params 3
+@max_sequence_number 5
 
 def gen_arg,             do: elements [:a, :b, :c, :ok, :error, :stop]
 def gen_hook_name,       do: elements([:hook1, :hook2] ++ for {h, _} <- core_hooks, do: h)
@@ -48,7 +49,7 @@ def gen_result           do
 end
 def gen_run_params,      do: gen_run_params(@max_params)
 def gen_run_params(n),   do: :eqc_gen.list(n, gen_arg)
-def gen_sequence_number, do: choose(0, 20)
+def gen_sequence_number, do: choose(0, @max_sequence_number)
 def gen_host,            do: elements [:no_host, :global, this_host]
 def gen_node,            do: elements [this_node() | child_nodes()]
 def gen_module,          do: elements [:handlers, :zandlers]
@@ -246,9 +247,10 @@ end
 def delete_args(state) do
   let {name, handlers} <- elements(Map.to_list(state.hooks)) do
   let {seq, h}         <- fault(gen_any_handler, elements(handlers)) do
+    hosts = case h.host do :global -> [:no_host, :global]; _ -> [h.host] end
     case Map.has_key?(h, :node) do
-      true  -> return [name, h.host, h.node, h.fun, seq]
-      false -> return [name, h.host, h.fun, seq]
+      true  -> [name, elements(hosts), h.node, h.fun, seq]
+      false -> [name, elements(hosts), h.fun, seq]
     end
   end end
 end
@@ -396,9 +398,14 @@ end
 # -- Weights ----------------------------------------------------------------
 
 weight _state,
-  add_anonymous: 1,
-  get:           1,
-  run:           1
+  add:                     3,
+  add_dist:                2,
+  delete:                  1,
+  run:                     2,
+  run_fold:                2,
+  get_hooks_with_handlers: 1,
+  remove_module_handlers:  1,
+  get:                     1
 
 # -- Property ---------------------------------------------------------------
 
