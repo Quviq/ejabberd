@@ -19,11 +19,17 @@ end
 
 @max_params 3
 
-def gen_arg,             do: elements [:a, :b, :c, :stop, :error]
+def gen_arg,             do: elements [:a, :b, :c, :ok, :error, :stop]
 def gen_hook_name,       do: elements([:hook1, :hook2] ++ for {h, _} <- core_hooks, do: h)
 def gen_result           do
-  weighted_default({4, elements [:ok, :stop, :error, exception(:fail)]},
-                   {1, {:stop, EQC.lazy(do: gen_result)}})
+  EQC.lazy do
+    shrink(
+      frequency([{4, gen_arg},
+                 {1, let(r <- gen_arg, do: return(exception(r)))},
+                 {1, :stop},
+                 {1, {:stop, gen_result}}]),
+      [:ok])
+  end
 end
 def gen_run_params,      do: gen_run_params(@max_params)
 def gen_run_params(n),   do: :eqc_gen.list(n, gen_arg)
