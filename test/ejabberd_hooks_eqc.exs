@@ -137,6 +137,9 @@ def check_fun(name, fun) do
   end
 end
 
+defp mk_list(xs) when is_list(xs), do: xs
+defp mk_list(x), do: [x]
+
 # -- Commands ---------------------------------------------------------------
 
 # --- add a handler ---
@@ -238,7 +241,8 @@ def run(name, host, params) do
   :ejabberd_hooks.run(name, host, params)
 end
 
-def run_callouts(state, [name, host, args]) do
+def run_callouts(state, [name, host, args0]) do
+  args = mk_list(args0)
   call run_handlers(name,
     fn(_, :stop) -> {:stop, :ok}
       (args, _)  -> args end,
@@ -249,14 +253,18 @@ end
 # --- run_fold ---
 
 def run_fold_args(_state) do
-  [gen_hook_name, gen_host, gen_arg, gen_run_params(1)]
+  args = let xs <- gen_run_params(@max_params - 1) do
+           elements([xs, :erlang.list_to_tuple(xs)])
+         end
+  [gen_hook_name, gen_host, gen_arg, return(args)]
 end
 
 def run_fold(name, host, val, args) do
   :ejabberd_hooks.run_fold(name, host, val, args)
 end
 
-def run_fold_callouts(state, [name, host, val, args]) do
+def run_fold_callouts(state, [name, host, val, args0]) do
+  args = mk_list(args0)
   call run_handlers(name,
     fn(_, :stop)        -> {:stop, :stopped}
       (_, {:stop, val}) -> {:stop, val}
