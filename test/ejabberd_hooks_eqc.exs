@@ -37,7 +37,7 @@ def gen_sequence_number, do: choose(0, 20)
 def gen_host,            do: elements [:global, this_host]
 def gen_node,            do: elements [this_node() | child_nodes()]
 def gen_module,          do: elements [:handlers, :zandlers]
-def gen_fun_name,        do: elements [:fun0, :fun1, :fun2, :fun3]
+def gen_fun_name,        do: elements [:fun0, :fun1, :fun2, :fun3, :funX]
 def gen_handler,         do: oneof [{gen_module, gen_fun_name}, {:fn, choose(0, @max_params), gen_arg}]
 def gen_faulty_handler,  do: oneof [{:bad_module, gen_fun_name}, {gen_module, :bad_fun}]
 
@@ -76,7 +76,7 @@ def get_handlers(state, name, host) do
 end
 
 def get_handlers(state, name, host, arity) do
-  for h={_, d} <- get_handlers(state, name, host), get_arity(d.fun) == arity, do: h
+  for h={_, d} <- get_handlers(state, name, host), arity in get_arity(d.fun), do: h
 end
 
 # This computes the unique key according to which handlers are ordered.
@@ -118,7 +118,7 @@ def delete_handler(state, name, handler, seq) do
 end
 
 def get_arity({mod, fun}),      do: get_api_arity(mod, fun)
-def get_arity({:fn, arity, _}), do: arity
+def get_arity({:fn, arity, _}), do: [arity]
 
 def anonymous_fun(name, arity, id, seq) do
   case arity do
@@ -136,7 +136,7 @@ def check_fun(name, fun) do
   case core_hooks()[name] do
     nil   -> :ok
     arity ->
-      case arity == get_arity(fun) do
+      case arity in get_arity(fun) do
         true  -> :ok
         false -> {:error, :incorrect_arity}
       end
@@ -385,29 +385,31 @@ def api_spec do
             EQC.Mocking.api_fun(name: :fun0,       arity: 0),
             EQC.Mocking.api_fun(name: :fun1,       arity: 1),
             EQC.Mocking.api_fun(name: :fun2,       arity: 2),
-            EQC.Mocking.api_fun(name: :fun3,       arity: 3) ]),
+            EQC.Mocking.api_fun(name: :fun3,       arity: 3),
+            EQC.Mocking.api_fun(name: :funX,       arity: 0),
+            EQC.Mocking.api_fun(name: :funX,       arity: 1),
+            EQC.Mocking.api_fun(name: :funX,       arity: 2),
+            EQC.Mocking.api_fun(name: :funX,       arity: 3) ]),
       EQC.Mocking.api_module(name: :zandlers,
         functions:
           [ EQC.Mocking.api_fun(name: :fun0,       arity: 0),
             EQC.Mocking.api_fun(name: :fun1,       arity: 1),
             EQC.Mocking.api_fun(name: :fun2,       arity: 2),
-            EQC.Mocking.api_fun(name: :fun3,       arity: 3) ])
+            EQC.Mocking.api_fun(name: :fun3,       arity: 3),
+            EQC.Mocking.api_fun(name: :funX,       arity: 0),
+            EQC.Mocking.api_fun(name: :funX,       arity: 1),
+            EQC.Mocking.api_fun(name: :funX,       arity: 2),
+            EQC.Mocking.api_fun(name: :funX,       arity: 3) ]),
     ]
   ]
 end
 
 def get_api_arity(mod, fun) do
-  as =
-    for m <- EQC.Mocking.api_spec(api_spec)[:modules],
-        EQC.Mocking.api_module(m, :name) == mod,
-        f <- EQC.Mocking.api_module(m, :functions),
-        EQC.Mocking.api_fun(f, :name) == fun do
-      EQC.Mocking.api_fun(f, :arity)
-    end
-  case as do
-    [a] -> a
-    []  -> 0
-    _   -> :erlang.error({:ambiguous_arity, mod, fun, as})
+  for m <- EQC.Mocking.api_spec(api_spec)[:modules],
+      EQC.Mocking.api_module(m, :name) == mod,
+      f <- EQC.Mocking.api_module(m, :functions),
+      EQC.Mocking.api_fun(f, :name) == fun do
+    EQC.Mocking.api_fun(f, :arity)
   end
 end
 
