@@ -155,6 +155,11 @@ def add_args(_state) do
    fault(gen_faulty_handler, gen_handler), gen_sequence_number]
 end
 
+## BUG: don't add :funX to core hooks since they don't work with multiple arity
+##      functions
+def add_pre(_state, [name, _, {_, :funX}, _]), do: nil == core_hooks()[name]
+def add_pre(_state, _args), do: true
+
 def add(name, host, {:fn, arity, id}, seq) do
   :ejabberd_hooks.add(name, host, anonymous_fun(name, arity, id, seq), seq)
 end
@@ -179,6 +184,11 @@ def add_dist_args(_state) do
   [gen_hook_name, gen_host, gen_node,
    gen_module, gen_fun_name, gen_sequence_number]
 end
+
+## BUG: don't add :funX to core hooks since they don't work with multiple arity
+##      functions
+def add_dist_pre(_state, [name, _, _, _, :funX, _]), do: nil == core_hooks()[name]
+def add_dist_pre(_state, _args), do: true
 
 def add_dist(name, host, node, mod, fun, seq) do
   :ejabberd_hooks.add_dist(name, host, mk_node(node), mod, fun, seq)
