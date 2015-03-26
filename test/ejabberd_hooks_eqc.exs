@@ -46,7 +46,7 @@ def gen_hook_name(state) do
   end end
 
 def gen_result           do
-  EQC.lazy do
+  lazy do
     shrink(
       frequency([{4, gen_arg},
                  {1, let(r <- gen_arg, do: return(exception(r)))},
