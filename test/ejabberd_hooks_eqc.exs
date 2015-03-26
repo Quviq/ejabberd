@@ -262,7 +262,7 @@ def run_fold_args(_state) do
   args = let xs <- gen_run_params(@max_params - 1) do
            elements([xs, :erlang.list_to_tuple(xs)])
          end
-  [gen_hook_name, gen_host, gen_arg, return(args)]
+  [gen_hook_name, gen_host, gen_arg, args]
 end
 
 def run_fold(name, host, val, args) do
