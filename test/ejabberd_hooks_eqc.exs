@@ -37,6 +37,14 @@ end
 
 def gen_arg,             do: elements [:a, :b, :c, :ok, :error, :stop]
 def gen_hook_name,       do: elements([:hook1, :hook2] ++ for {h, _} <- core_hooks, do: h)
+
+# Favour hooks with handlers.
+def gen_hook_name(state) do
+  case Map.keys(state.hooks) do
+    []    -> gen_hook_name
+    hooks -> frequency [{9, elements(hooks)}, {1, gen_hook_name}]
+  end end
+
 def gen_result           do
   EQC.lazy do
     shrink(
@@ -47,6 +55,7 @@ def gen_result           do
       [:ok])
   end
 end
+
 def gen_run_params,      do: gen_run_params(@max_params)
 def gen_run_params(n),   do: :eqc_gen.list(n, gen_arg)
 def gen_sequence_number, do: choose(0, @max_sequence_number)
@@ -182,8 +191,8 @@ defp mk_host(h),        do: h
 
 # --- add a handler ---
 
-def add_args(_state) do
-  [gen_hook_name, gen_host,
+def add_args(state) do
+  [gen_hook_name(state), gen_host,
    fault(gen_faulty_handler, gen_handler), gen_sequence_number]
 end
 
@@ -218,8 +227,8 @@ end
 
 # --- add a distributed handler ---
 
-def add_dist_args(_state) do
-  [gen_hook_name, gen_host, gen_node,
+def add_dist_args(state) do
+  [gen_hook_name(state), gen_host, gen_node,
    gen_module, gen_fun_name, gen_sequence_number]
 end
 
@@ -288,7 +297,9 @@ end
 
 # --- removing all handlers for a module ---
 
-def remove_module_handlers_args(_state), do: [gen_hook_name, gen_host, gen_module]
+def remove_module_handlers_args(state) do
+  [gen_hook_name(state), gen_host, gen_module]
+end
 
 def remove_module_handlers(name, :no_host, module) do
   :ejabberd_hooks.remove_module_handlers(name, module)
@@ -307,7 +318,7 @@ end
 
 # --- running a handler ---
 
-def run_args(_state), do: [gen_hook_name, gen_host, gen_run_params]
+def run_args(state), do: [gen_hook_name(state), gen_host, gen_run_params]
 
 def run(name, :no_host, params), do: :ejabberd_hooks.run(name, params)
 def run(name, host, params),     do: :ejabberd_hooks.run(name, host, params)
@@ -323,11 +334,11 @@ end
 
 # --- run_fold ---
 
-def run_fold_args(_state) do
+def run_fold_args(state) do
   args = let xs <- gen_run_params(@max_params - 1) do
            elements([xs, :erlang.list_to_tuple(xs)])
          end
-  [gen_hook_name, gen_host, gen_arg, args]
+  [gen_hook_name(state), gen_host, gen_arg, args]
 end
 
 def run_fold(name, :no_host, val, args), do: :ejabberd_hooks.run_fold(name, val, args)
@@ -367,7 +378,7 @@ end
 
 # --- get info on a handler ---
 
-def get_args(_state), do: [gen_hook_name, gen_host]
+def get_args(state), do: [gen_hook_name(state), gen_host]
 
 def get(name, :no_host), do: :ejabberd_hooks.get_handlers(name)
 def get(name, host),     do: :ejabberd_hooks.get_handlers(name, host)
