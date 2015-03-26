@@ -17,20 +17,22 @@ def core_hooks() do
   end
 end
 
+@max_params 3
+
 def gen_arg,             do: elements [:a, :b, :c, :stop, :error]
 def gen_hook_name,       do: elements([:hook1, :hook2] ++ for {h, _} <- core_hooks, do: h)
 def gen_result           do
   weighted_default({4, elements [:ok, :stop, :error, exception(:fail)]},
                    {1, {:stop, EQC.lazy(do: gen_result)}})
 end
-def gen_run_params,      do: gen_run_params(3)
+def gen_run_params,      do: gen_run_params(@max_params)
 def gen_run_params(n),   do: :eqc_gen.list(n, gen_arg)
 def gen_sequence_number, do: choose(0, 20)
 def gen_host,            do: elements [:global, this_host]
 def gen_node,            do: elements [this_node() | child_nodes()]
 def gen_module,          do: elements [:handlers, :zandlers]
 def gen_fun_name,        do: elements [:fun0, :fun1, :fun2, :fun3]
-def gen_handler,         do: oneof [{gen_module, gen_fun_name}, {:fn, choose(0, 3), gen_arg}]
+def gen_handler,         do: oneof [{gen_module, gen_fun_name}, {:fn, choose(0, @max_params), gen_arg}]
 def gen_faulty_handler,  do: oneof [{:bad_module, gen_fun_name}, {gen_module, :bad_fun}]
 
 # -- Distribution -----------------------------------------------------------
