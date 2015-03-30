@@ -108,6 +108,8 @@ CfgDeps = lists:flatmap(
                     [{meck, "0.*", {git, "https://github.com/eproxus/meck"}}];
 	       ({redis, true}) ->
 		    [{eredis, ".*", {git, "git://github.com/wooga/eredis"}}];
+               ({eqc_ex, true}) ->
+                    [{eqc_ex, ".*", {git, "git://github.com/Quviq/eqc_ex", {tag, "v1.2.0"}}}];
                (_) ->
                     []
             end, Cfg),
