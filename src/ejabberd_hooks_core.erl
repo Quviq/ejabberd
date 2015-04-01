@@ -62,3 +62,7 @@ c2s_stream_features(Host, _State, Arg) ->
 %% all() will be added at compile time by parse_transform
 %% It return the list of core hooks alongs with there specifications
 %% as a list of hooks records
+
+%% TODO:
+%% - Generate function call wrapper from spec
+

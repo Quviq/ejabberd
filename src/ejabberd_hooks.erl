@@ -30,11 +30,11 @@
 
 %% External exports
 -export([start_link/0,
-	 add/3,
-	 add/4,
-	 add/5,
-	 add_dist/5,
-	 add_dist/6,
+         add_handler/3,
+         add_handler/4,
+	 add_handler/5,
+	 add_dist_handler/5,
+	 add_dist_handler/6,
 	 delete/3,
 	 delete/4,
 	 delete/5,
@@ -52,6 +52,13 @@
 
 -export([delete_all_hooks/0]).
 
+%% Legacy API
+-export([add/3,
+	 add/4,
+	 add/5,
+	 add_dist/5,
+	 add_dist/6]).
+
 %% gen_server callbacks
 -export([init/1,
 	 handle_call/3,
@@ -67,8 +74,9 @@
 -define(TIMEOUT_DISTRIBUTED_HOOK, 5000).
 
 -record(state, {}).
--type local_hook() :: { Seq :: integer(), Module :: atom(), Function :: atom()}.
--type distributed_hook() :: { Seq :: integer(), Node :: atom(), Module :: atom(), Function :: atom()}.
+%% TODO: Use record for hook structure and unify local and distributed hooks
+-type local_hook() :: { Seq :: integer(), Module :: atom(), Function :: atom(), CallType :: record|args }.
+-type distributed_hook() :: { Seq :: integer(), Node :: atom(), Module :: atom(), Function :: atom(), CallType :: record|args }.
 
 %%%----------------------------------------------------------------------
 %%% API
@@ -76,35 +84,67 @@
 start_link() ->
     gen_server:start_link({local, ejabberd_hooks}, ejabberd_hooks, [], []).
 
--spec add(atom(), fun(), number()) -> ok.
+-spec add_handler(atom(), fun(), number()) -> ok.
 
-%% @doc See add/4.
-add(Hook, Function, Seq) when is_function(Function) ->
-    add(Hook, global, undefined, Function, Seq).
+add_handler(Hook, Function, Seq) when is_function(Function) ->
+    add_handler(Hook, global, undefined, Function, Seq).
 
--spec add(atom(), HostOrModule :: binary() | atom(), fun() | atom() , number()) -> ok | {error, atom()}.
-add(Hook, Host, Function, Seq) when is_function(Function) ->
+-spec add_handler(atom(), HostOrModule :: binary() | atom(), fun() | atom() , number()) -> ok | {error, atom()}.
+add_handler(Hook, Host, Function, Seq) when is_function(Function) ->
     add(Hook, Host, undefined, Function, Seq);
 
 %% @doc Add a module and function to this hook.
 %% The integer sequence is used to sort the calls: low number is called before high number.
+add_handler(Hook, Module, Function, Seq) ->
+    add_handler(Hook, global, Module, Function, Seq).
+
+-spec add_handler(atom(), binary() | global, atom(), atom() | fun(), number()) -> ok.
+
+add_handler(Hook, Host, Module, Function, Seq) ->
+    add_handler(Hook, Host, Module, Function, Seq, record).
+
+add_handler(Hook, Host, Module, Function, Seq, CallType) -> 
+    gen_server:call(ejabberd_hooks, {add, Hook, Host, Module, Function, Seq, CallType}).
+
+-spec add(atom(), fun(), number()) -> ok.
+
+%% @doc See add/4. Deprecated in favor of add_handler/3
+add(Hook, Function, Seq) when is_function(Function) ->
+    add_handler(Hook, global, undefined, Function, Seq, args).
+
+-spec add(atom(), HostOrModule :: binary() | atom(), fun() | atom() , number()) -> ok | {error, atom()}.
+add(Hook, Host, Function, Seq) when is_function(Function) ->
+    add_handler(Hook, Host, undefined, Function, Seq, args);
+
+%% @doc Add a module and function to this hook.
+%% The integer sequence is used to sort the calls: low number is called before high number.
 add(Hook, Module, Function, Seq) ->
-    add(Hook, global, Module, Function, Seq).
+    add_handler(Hook, global, Module, Function, Seq, args).
 
 -spec add(atom(), binary() | global, atom(), atom() | fun(), number()) -> ok.
 
 add(Hook, Host, Module, Function, Seq) ->
-    gen_server:call(ejabberd_hooks, {add, Hook, Host, Module, Function, Seq}).
+    add_handler(Hook, Host, Module, Function, Seq, args).
 
 -spec add_dist(atom(), atom(), atom(), atom() | fun(), number()) -> ok.
 
 add_dist(Hook, Node, Module, Function, Seq) ->
-    gen_server:call(ejabberd_hooks, {add, Hook, global, Node, Module, Function, Seq}).
+    add_dist(Hook, global, Node, Module, Function, Seq).
 
 -spec add_dist(atom(), binary() | global, atom(), atom(), atom() | fun(), number()) -> ok.
 
 add_dist(Hook, Host, Node, Module, Function, Seq) ->
-    gen_server:call(ejabberd_hooks, {add, Hook, Host, Node, Module, Function, Seq}).
+    gen_server:call(ejabberd_hooks, {add, Hook, Host, Node, Module, Function, Seq, args}).
+
+-spec add_dist_handler(atom(), atom(), atom(), atom() | fun(), number()) -> ok.
+
+add_dist_handler(Hook, Node, Module, Function, Seq) ->
+    add_dist_handler(Hook, global, Node, Module, Function, Seq).
+
+-spec add_dist_handler(atom(), binary() | global, atom(), atom(), atom() | fun(), number()) -> ok.
+
+add_dist_handler(Hook, Host, Node, Module, Function, Seq) ->
+    gen_server:call(ejabberd_hooks, {add, Hook, Host, Node, Module, Function, Seq, record}).
 
 -spec delete(atom(), fun(), number()) -> ok.
 
@@ -229,22 +269,20 @@ init([]) ->
 %%          {stop, Reason, Reply, State}   | (terminate/2 is called)
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%----------------------------------------------------------------------
-handle_call({add, Hook, Host, Module, Function, Seq}, _From, State) ->
-    HookFormat = {Seq, Module, Function},
+handle_call({add, Hook, Host, Module, Function, Seq, CallType}, _From, State) ->
+    HookFormat = {Seq, Module, Function, CallType},
     Reply = handle_add(Hook, Host, HookFormat),
     {reply, Reply, State};
-handle_call({add, Hook, Host, Node, Module, Function, Seq}, _From, State) ->
-    HookFormat = {Seq, Node, Module, Function},
+handle_call({add, Hook, Host, Node, Module, Function, Seq, CallType}, _From, State) ->
+    HookFormat = {Seq, Node, Module, Function, CallType},
     Reply = handle_add(Hook, Host, HookFormat),
     {reply, Reply, State};
 
 handle_call({delete, Hook, Host, Module, Function, Seq}, _From, State) ->
-    HookFormat = {Seq, Module, Function},
-    Reply = handle_delete(Hook, Host, HookFormat),
+    Reply = handle_delete(Hook, Host, Seq, undefined, Module, Function),
     {reply, Reply, State};
 handle_call({delete, Hook, Host, Node, Module, Function, Seq}, _From, State) ->
-    HookFormat = {Seq, Node, Module, Function},
-    Reply = handle_delete(Hook, Host, HookFormat),
+    Reply = handle_delete(Hook, Host, Seq, Node, Module, Function),
     {reply, Reply, State};
 
 handle_call({remove_module_handlers, Hook, Host, Module}, _From, State) ->
@@ -350,12 +388,19 @@ do_handle_add(Hook, Host, El) ->
             ok
     end.
 
--spec handle_delete(atom(), atom(), local_hook() | distributed_hook()) -> ok.
+-spec handle_delete(atom(), atom(), integer(), atom(), atom(), atom()) -> ok.
 %% in-memory storage operation: Handle deleting hook from ETS table
-handle_delete(Hook, Host, El) ->
+handle_delete(Hook, Host, Seq, Node, Module, Function) ->
     case ets:lookup(hooks, {Hook, Host}) of
         [{_, Ls}] ->
-            NewLs = lists:delete(El, Ls),
+            Filter = fun(HookTuple) ->
+                             case HookTuple of
+                                 {Seq, Module, Function, _CallType} -> false;
+                                 {Seq, Node, Module, Function, _CallType} -> false;
+                                 _ -> true
+                             end
+                     end,
+            NewLs = lists:filter(Filter, Ls), 
             ets:insert(hooks, {{Hook, Host}, NewLs}),
             ok;
         [] ->
@@ -368,8 +413,8 @@ remove_module_handler(Hook, Host, Module) ->
         [{_, Ls}] ->
             Filter = fun(HookTuple) ->
                              case HookTuple of
-                                 {_Seq, Module, _Function} -> false;
-                                 {_Seq, _Node, Module, _Function} -> false;
+                                 {_Seq, Module, _Function, _CallType} -> false;
+                                 {_Seq, _Node, Module, _Function, _CallType} -> false;
                                  _ -> true
                              end
                      end,
@@ -418,7 +463,7 @@ run1([], _Hook, _Args) ->
     ok;
 %% Run distributed hook on target node.
 %% It is not attempted again in case of failure. Next hook will be executed
-run1([{_Seq, Node, Module, Function} | Ls], Hook, Args) ->
+run1([{_Seq, Node, Module, Function, _CallType} | Ls], Hook, Args) ->
     %% MR: Should we have a safe rpc, like we have a safe apply or is bad_rpc enough ?
     case rpc:call(Node, Module, Function, Args, ?TIMEOUT_DISTRIBUTED_HOOK) of
 	timeout ->
@@ -438,7 +483,7 @@ run1([{_Seq, Node, Module, Function} | Ls], Hook, Args) ->
 		      "The response is:~n~s", [self(), node(), Node, Res]), % debug code
 	    run1(Ls, Hook, Args)
     end;
-run1([{_Seq, Module, Function} | Ls], Hook, Args) ->
+run1([{_Seq, Module, Function, _CallType} | Ls], Hook, Args) ->
     Res = safe_apply(Module, Function, Args),
     case Res of
 	{'EXIT', Reason} ->
@@ -454,8 +499,8 @@ run1([{_Seq, Module, Function} | Ls], Hook, Args) ->
 
 run_fold1([], _Hook, Val, _Args) ->
     Val;
-run_fold1([{_Seq, Node, Module, Function} | Ls], Hook, Val, Args) ->
-    case rpc:call(Node, Module, Function, format_args(Val, Args), ?TIMEOUT_DISTRIBUTED_HOOK) of
+run_fold1([{_Seq, Node, Module, Function, CallType} | Ls], Hook, Val, Args) ->
+    case rpc:call(Node, Module, Function, format_args(Hook, CallType, Val, Args), ?TIMEOUT_DISTRIBUTED_HOOK) of
 	{badrpc, Reason} ->
 	    ?ERROR_MSG("Bad RPC error to ~p: ~p~nrunning hook: ~p",
 		       [Node, Reason, {Hook, Args}]),
@@ -475,8 +520,8 @@ run_fold1([{_Seq, Node, Module, Function} | Ls], Hook, Val, Args) ->
 		      "The NewVal is:~n~p", [self(), node(), Node, NewVal]), % debug code
 	    run_fold1(Ls, Hook, NewVal, Args)
     end;
-run_fold1([{_Seq, Module, Function} | Ls], Hook, Val, Args) ->
-    Res = safe_apply(Module, Function, format_args(Val, Args)),
+run_fold1([{_Seq, Module, Function, CallType} | Ls], Hook, Val, Args) ->
+    Res = safe_apply(Module, Function, format_args(Hook, CallType, Val, Args)),
     case Res of
 	{'EXIT', Reason} ->
 	    ?ERROR_MSG("~p~nrunning hook: ~p", [Reason, {Hook, Args}]),
@@ -489,16 +534,25 @@ run_fold1([{_Seq, Module, Function} | Ls], Hook, Val, Args) ->
 	    run_fold1(Ls, Hook, NewVal, Args)
     end.
 
-extract_module_function({_Seq, Module, Function}) ->
+extract_module_function({_Seq, Module, Function, _CallType}) ->
     {Module, Function};
-extract_module_function({_Seq, _Node, Module, Function}) ->
+extract_module_function({_Seq, _Node, Module, Function, _CallType}) ->
     {Module, Function}.
 
 %% This introduce backward compatible change for parameters (Args can be record or list)
-format_args(Val, Args) ->
+format_args(Hook, args, Val, Args) ->
     case Args of
         A when is_list(A)  -> [Val | Args];
-        R when is_tuple(R) -> [Val, R]
+        R when is_tuple(R) ->
+            case tuple_to_list(R) of
+                [Hook|RecordArgs] -> [Val|RecordArgs];
+                _ -> [Val | Args ]
+            end
+    end;
+format_args(Hook, record, Val, Args) ->
+    case Args of
+        R when is_tuple(R) -> [Val, R];
+        A when is_list(A)  -> [Val, list_to_tuple([Hook | Args])]
     end.
 
 safe_apply(Module, Function, Args) ->

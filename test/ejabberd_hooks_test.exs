@@ -20,7 +20,7 @@
 
 defmodule EjabberdHooksTest do
   use ExUnit.Case, async: true
-  
+
   @author "mremond@process-one.net"
   @host <<"domain.net">>
   @self __MODULE__
@@ -39,16 +39,16 @@ defmodule EjabberdHooksTest do
   test "An anonymous function can be added as a hook" do
     hookname = :test_fun_hook
     :ok = :ejabberd_hooks.add(hookname, @host, fn _ -> :ok end, 50)
-    [{50, :undefined, _}] = :ejabberd_hooks.get_handlers(hookname, @host)
+    [{50, :undefined, _, :args}] = :ejabberd_hooks.get_handlers(hookname, @host)
   end
   
   test "A module function can be added as a hook" do
     hookname = :test_mod_hook
-    modulename = :hook_module
+    module_name = :hook_module
     callback = :hook_callback
-    mock(modulename, callback, fn -> :ok end)
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, callback, 40)
-    [{40, ^modulename, ^callback}] = :ejabberd_hooks.get_handlers(hookname, @host)
+    mock(module_name, callback, fn -> :ok end)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, callback, 40)
+    [{40, ^module_name, ^callback, :args}] = :ejabberd_hooks.get_handlers(hookname, @host)
   end
 
   test "An anonymous function can be removed from hook handlers" do
@@ -61,11 +61,11 @@ defmodule EjabberdHooksTest do
 
   test "A module function can be removed from hook handlers" do
     hookname = :test_mod_hook
-    modulename = :hook_module
+    module_name = :hook_module
     callback = :hook_callback
-    mock(modulename, callback, fn -> :ok end)
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, callback, 40)
-    :ok = :ejabberd_hooks.delete(hookname, @host, modulename, callback, 40)
+    mock(module_name, callback, fn -> :ok end)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, callback, 40)
+    :ok = :ejabberd_hooks.delete(hookname, @host, module_name, callback, 40)
     [] = :ejabberd_hooks.get_handlers(hookname, @host)
     # TODO: Check that removed function is not called anymore
   end
@@ -85,27 +85,27 @@ defmodule EjabberdHooksTest do
   test "Hook run chain is stopped when handler return 'stop'" do
     # setup test
     hookname = :test_mod_hook
-    modulename = :hook_module
-    mock(modulename, :hook_callback1, fn _ -> :stop end)
-    mock(modulename, :hook_callback2, fn _ -> :end_result end)
+    module_name = :hook_module
+    mock(module_name, :hook_callback1, fn _ -> :stop end)
+    mock(module_name, :hook_callback2, fn _ -> :end_result end)
     
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, :hook_callback1, 40)
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, :hook_callback1, 50)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback1, 40)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback1, 50)
 
     :ok = :ejabberd_hooks.run(hookname, @host, [:hook_params])
     # callback2 is never run:
-    [{_pid, {^modulename, _callback, [:hook_params]}, :stop}] = :meck.history(modulename)   
+    [{_pid, {^module_name, _callback, [:hook_params]}, :stop}] = :meck.history(module_name)   
   end
 
   test "Run fold hooks accumulate state in correct order through handlers" do
     # setup test
     hookname = :test_mod_hook
-    modulename = :hook_module
-    mock(modulename, :hook_callback1, fn(list, user) -> [user|list] end)
-    mock(modulename, :hook_callback2, fn(list, _user) -> ["jid2"|list] end)
+    module_name = :hook_module
+    mock(module_name, :hook_callback1, fn(list, user) -> [user|list] end)
+    mock(module_name, :hook_callback2, fn(list, _user) -> ["jid2"|list] end)
     
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, :hook_callback1, 40)
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, :hook_callback2, 50)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback1, 40)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback2, 50)
     
     ["jid2", "jid1"] = :ejabberd_hooks.run_fold(hookname, @host, [], ["jid1"])
   end
@@ -113,32 +113,32 @@ defmodule EjabberdHooksTest do
   test "Hook run_fold are executed based on priority order, not registration order" do
     # setup test
     hookname = :test_mod_hook
-    modulename = :hook_module
-    mock(modulename, :hook_callback1, fn(_acc) -> :first end)
-    mock(modulename, :hook_callback2, fn(_acc) -> :second end)
+    module_name = :hook_module
+    mock(module_name, :hook_callback1, fn(_acc) -> :first end)
+    mock(module_name, :hook_callback2, fn(_acc) -> :second end)
 
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, :hook_callback2, 50)
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, :hook_callback1, 40)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback2, 50)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback1, 40)
     
     :second = :ejabberd_hooks.run_fold(hookname, @host, :started, [])
     # Both module have been called:
-    2 = length(:meck.history(modulename))
+    2 = length(:meck.history(module_name))
   end
   
   # TODO: Test with ability to stop and return a value
   test "Hook run_fold chain is stopped when handler return 'stop'" do
     # setup test
     hookname = :test_mod_hook
-    modulename = :hook_module
-    mock(modulename, :hook_callback1, fn(_acc) -> :stop end)
-    mock(modulename, :hook_callback2, fn(_acc) -> :executed end)
+    module_name = :hook_module
+    mock(module_name, :hook_callback1, fn(_acc) -> :stop end)
+    mock(module_name, :hook_callback2, fn(_acc) -> :executed end)
 
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, :hook_callback1, 40)
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, :hook_callback2, 50)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback1, 40)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback2, 50)
 
     :stopped = :ejabberd_hooks.run_fold(hookname, @host, :started, [])
     # Only one module has been called
-    [{_pid, {^modulename, :hook_callback1, [:started]}, :stop}] = :meck.history(modulename)
+    [{_pid, {^module_name, :hook_callback1, [:started]}, :stop}] = :meck.history(module_name)
   end
 
   test "Error in run_fold is ignored" do
@@ -174,7 +174,7 @@ defmodule EjabberdHooksTest do
     :ok = :ejabberd_hooks.add(hookname, @host, module2_name, :hook_callback, 50)
 
     :ok = :ejabberd_hooks.remove_module_handlers(hookname, @host, module1_name)
-    [{50, ^module2_name, :hook_callback}] = :ejabberd_hooks.get_handlers(hookname, @host)
+    [{50, ^module2_name, :hook_callback, :args}] = :ejabberd_hooks.get_handlers(hookname, @host)
   end
 
   test "We can retrieve the list of hooks that have handlers defined" do
@@ -218,7 +218,39 @@ defmodule EjabberdHooksTest do
     {:error, :incorrect_arity} = :ejabberd_hooks.add(corehook, @host, module_name, :hook_callback, 40)
     [] = :ejabberd_hooks.get_handlers(corehook, @host)
   end
+
+  test "Legacy hooks are call with args, new hooks with records" do
+    module_name = :hook_module
+    corehook = :c2s_stream_features
+
+    mock(module_name, :hook_callback1, fn(:started, _) -> :first end)
+    :ok = :ejabberd_hooks.add(corehook, @host, module_name, :hook_callback1, 40)
+
+    mock(module_name, :hook_callback2, fn (:first, _) -> :second end)
+    :ok = :ejabberd_hooks.add_handler(corehook, @host, module_name, :hook_callback2, 50)
+
+    :second = :ejabberd_hooks.run_fold(corehook, @host, :started, [@host])
+    # Both handlers have been called:
+    calls = :meck.history(module_name)
+    [{pid, {^module_name, :hook_callback1, [:started, @host]}, :first} | second] = calls
+    [{^pid, {^module_name, :hook_callback2, [:first, {corehook, @host}]}, :second}] = second
+  end
   
+  test "We can delete hooks, no matter which API they used" do
+    module_name = :hook_module
+    corehook = :c2s_loop_debug
+
+    mock(module_name, :hook_callback1, fn _ -> :ok end)
+    :ok = :ejabberd_hooks.add(corehook, @host, module_name, :hook_callback1, 40)
+    :ok = :ejabberd_hooks.delete(corehook, @host, module_name, :hook_callback1, 40)
+    [] = :ejabberd_hooks.get_handlers(corehook, @host)
+
+    mock(module_name, :hook_callback2, fn _ -> :ok end)
+    :ok = :ejabberd_hooks.add_handler(corehook, @host, module_name, :hook_callback2, 40)
+    :ok = :ejabberd_hooks.delete(corehook, @host, module_name, :hook_callback2, 40)
+    [] = :ejabberd_hooks.get_handlers(corehook, @host)
+  end
+
   # Test helpers
   # ============
   
@@ -226,29 +258,29 @@ defmodule EjabberdHooksTest do
   def run_hook(params, fun, result) do 
     # setup test
     hookname = :test_mod_hook
-    modulename = :hook_module
+    module_name = :hook_module
     callback = :hook_callback
-    mock(modulename, callback, fun)
+    mock(module_name, callback, fun)
     
     # Then check
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, callback, 40)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, callback, 40)
     :ok = :ejabberd_hooks.run(hookname, @host, params)
-    [{_pid, {^modulename, ^callback, ^params}, ^result}] = :meck.history(modulename)   
+    [{_pid, {^module_name, ^callback, ^params}, ^result}] = :meck.history(module_name)
   end
 
   def run_fold_crash(crash_fun) do
     # setup test
     hookname = :test_mod_hook
-    modulename = :hook_module
-    mock(modulename, :hook_callback1, crash_fun)
-    mock(modulename, :hook_callback2, fn(_acc) -> :final end)
+    module_name = :hook_module
+    mock(module_name, :hook_callback1, crash_fun)
+    mock(module_name, :hook_callback2, fn(_acc) -> :final end)
 
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, :hook_callback1, 40)
-    :ok = :ejabberd_hooks.add(hookname, @host, modulename, :hook_callback2, 50)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback1, 40)
+    :ok = :ejabberd_hooks.add(hookname, @host, module_name, :hook_callback2, 50)
 
     :final = :ejabberd_hooks.run_fold(hookname, @host, :started, [])
     # Both handlers were called
-    2 = length(:meck.history(modulename))    
+    2 = length(:meck.history(module_name))    
   end
 
   # TODO refactor: Move to ejabberd_test_mock
