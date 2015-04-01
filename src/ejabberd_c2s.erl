@@ -1678,38 +1678,27 @@ handle_info({route, From, To,
 								 Packet, in)
 					   of
 					 allow -> {true, Attrs, StateData};
-					 deny -> {false, Attrs, StateData}
+					 deny ->
+					     Err =
+						 jlib:make_error_reply(Packet,
+								       ?ERR_SERVICE_UNAVAILABLE),
+					     ejabberd_router:route(To, From,
+								   Err),
+					     {false, Attrs, StateData}
 				       end;
 				   _ -> {true, Attrs, StateData}
 				 end,
-    if Pass == exit ->
-	    %% When Pass==exit, NewState contains a string instead of a #state{}
-	    Lang = StateData#state.lang,
-	    send_element(StateData, ?SERRT_CONFLICT(Lang, NewState)),
-	    send_trailer(StateData),
-	    {stop, normal, StateData};
-	Pass ->
+    if Pass ->
 	    Attrs2 =
 	       jlib:replace_from_to_attrs(jlib:jid_to_string(From),
 					  jlib:jid_to_string(To), NewAttrs),
 	    FixedPacket = #xmlel{name = Name, attrs = Attrs2, children = Els},
-	    FinalState =
-		case ejabberd_hooks:run_fold(c2s_filter_packet_in,
-					     NewState#state.server, FixedPacket,
-					     [NewState#state.jid, From, To])
-		    of
-		  drop ->
-		      NewState;
-		  FinalPacket = #xmlel{} ->
-		      SentState = send_packet(NewState, FinalPacket),
-		      ejabberd_hooks:run(user_receive_packet,
-					 SentState#state.server,
-					 [SentState#state.jid, From, To,
-					  FinalPacket]),
-		      SentState
-		end,
+	    SentStateData = send_packet(NewState, FixedPacket),
+	    ejabberd_hooks:run(user_receive_packet,
+			       SentStateData#state.server,
+			       [SentStateData#state.jid, From, To, FixedPacket]),
             ejabberd_hooks_core:c2s_loop_debug(#c2s_loop_debug{data={route, From, To, Packet}}),
-	    fsm_next_state(StateName, FinalState);
+	    fsm_next_state(StateName, SentStateData);
 	true ->
             ejabberd_hooks_core:c2s_loop_debug(#c2s_loop_debug{data={route, From, To, Packet}}),
 	    fsm_next_state(StateName, NewState)
@@ -1736,6 +1725,10 @@ handle_info(system_shutdown, StateName, StateData) ->
 	  ok
     end,
     {stop, normal, StateData};
+handle_info({route_xmlstreamelement, El}, _StateName, StateData) ->
+    {next_state, NStateName, NStateData, _Timeout} =
+	session_established({xmlstreamelement, El}, StateData),
+    fsm_next_state(NStateName, NStateData);
 handle_info({force_update_presence, LUser}, StateName,
 	    #state{user = LUser, server = LServer} = StateData) ->
     NewStateData = case StateData#state.pres_last of
