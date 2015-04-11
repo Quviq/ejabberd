@@ -233,7 +233,7 @@ defmodule EjabberdHooksTest do
     # Both handlers have been called:
     calls = :meck.history(module_name)
     [{pid, {^module_name, :hook_callback1, [:started, @host]}, :first} | second] = calls
-    [{^pid, {^module_name, :hook_callback2, [:first, {corehook, @host}]}, :second}] = second
+    [{^pid, {^module_name, :hook_callback2, [:first, {^corehook, @host}]}, :second}] = second
   end
   
   test "We can delete hooks, no matter which API they used" do
