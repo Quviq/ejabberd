@@ -85,6 +85,15 @@ PostHooks = [ConfigureCmd("p1_tls", ""),
 	     ConfigureCmd("esip", ""),
              ConfigureCmd("p1_xml", XMLFlags)],
 
+%% Return Elixir Quickcheck module as dependency if Quviq Quickcheck
+%% is installed
+EqcEx = case catch eqc:version() of
+             {'EXIT', _} ->
+                 [];
+             Version when is_number(Version) ->
+                 [{eqc_ex, "1.2.*", {git, "git://github.com/processone/eqc_ex.git", {branch, "rebar-for-deps"}}}]
+         end,
+
 CfgDeps = lists:flatmap(
             fun({mysql, true}) ->
                     [{p1_mysql, ".*", {git, "git://github.com/processone/mysql"}}];
@@ -101,8 +110,9 @@ CfgDeps = lists:flatmap(
                ({json, true}) ->
                     [{jiffy, ".*", {git, "git://github.com/davisp/jiffy"}}];
                ({elixir, true}) ->
-                    [{rebar_elixir_plugin, ".*", {git, "git://github.com/yrashk/rebar_elixir_plugin"}},
-                     {elixir, ".*", {git, "git://github.com/elixir-lang/elixir", {branch, "v1.0"}}}];
+                    [{rebar_elixir_plugin, ".*", {git, "https://github.com/yrashk/rebar_elixir_plugin.git"}},
+                     {elixir, ".*", {git, "git://github.com/elixir-lang/elixir", {branch, "v1.0"}}}] ++
+                        EqcEx;
                ({iconv, true}) ->
                     [{p1_iconv, ".*", {git, "git://github.com/processone/eiconv"}}];
                ({lager, true}) ->
