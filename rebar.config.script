@@ -90,6 +90,8 @@ CfgDeps = lists:flatmap(
                     [{p1_mysql, ".*", {git, "git://github.com/processone/mysql"}}];
                ({pgsql, true}) ->
                     [{p1_pgsql, ".*", {git, "git://github.com/processone/pgsql"}}];
+               ({sqlite, true}) ->
+                    [{sqlite3, ".*", {git, "git://github.com/alexeyr/erlang-sqlite3"}}];
                ({pam, true}) ->
                     [{p1_pam, ".*", {git, "git://github.com/processone/epam"}}];
                ({zlib, true}) ->
@@ -162,13 +164,22 @@ ElixirConfig = case lists:keysearch(elixir, 1, Cfg) of
 
 {ok, Cwd} = file:get_cwd(),
 
+TestConfigFile = filename:join([Cwd, "test", "config.ctc"]),
+TestConfig = case file:read_file_info(TestConfigFile) of
+                 {ok, _} ->
+                     "-userconfig ct_config_plain " ++ TestConfigFile ++ " ";
+                 _ ->
+                     ""
+             end,
+
 Config = [{erl_opts, Macros ++ HiPE ++ DebugInfo ++
                [{src_dirs, [asn1, src | SrcDirs]}]},
           {erl_first_files, ["src/ejabberd_hooks_transform.erl"]},
           {sub_dirs, ["rel"]},
           {keep_build_info, true},
-          {ct_extra_params, "-include "
-           ++ filename:join([Cwd, "tools"])},
+          {ct_extra_params, "-ct_hooks cth_surefire "
+           ++ TestConfig
+           ++ "-include " ++ filename:join([Cwd, "tools"])},
 	  {xref_warnings, false},
           {xref_checks, []},
 	  {xref_queries,

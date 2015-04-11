@@ -138,7 +138,11 @@ handle_event({activate, From}, StateName, StateData) ->
              StateData#state{waiting_input = From}};
       Input ->
             Receiver = From,
-            Receiver ! {tcp, StateData#state.socket, Input},
+            lists:foreach(fun(I) when is_binary(I)->
+                                  Receiver ! {tcp, StateData#state.socket, I};
+                             (I2) ->
+                                  Receiver ! {tcp, StateData#state.socket, [I2]}
+                          end, Input),
             {next_state, StateName,
              StateData#state{input = [], waiting_input = false,
                              last_receiver = Receiver}}
@@ -209,7 +213,7 @@ handle_info({received, Packet}, StateName, StateDataI) ->
     {StateData, Parsed} = parse(StateDataI, Packet),
     SD = case StateData#state.waiting_input of
              false ->
-                 Input = StateData#state.input ++ Parsed,
+                 Input = StateData#state.input ++ if is_binary(Parsed) -> [Parsed]; true -> Parsed end,
                  StateData#state{input = Input};
              Receiver ->
                  Receiver ! {tcp, StateData#state.socket, Parsed},

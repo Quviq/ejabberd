@@ -4,6 +4,8 @@
 *~
 \#*#
 .#*
+.edts
+*.dump
 /Makefile
 /config.log
 /config.status
@@ -28,7 +30,7 @@
 /ebin/
 /ejabberd.init
 /ejabberdctl.example
-/include/XmppAddr.hrl
+XmppAddr.hrl
 /rel/ejabberd/
 /src/XmppAddr.asn1db
 /src/XmppAddr.erl
@@ -38,3 +40,4 @@
 /dialyzer/
 /test/*.beam
 /logs/
+/priv/sql
