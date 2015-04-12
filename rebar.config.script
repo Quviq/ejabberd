@@ -91,7 +91,7 @@ EqcEx = case catch eqc:version() of
              {'EXIT', _} ->
                  [];
              Version when is_number(Version) ->
-                 [{eqc_ex, ".*", {git, "git://github.com/processone/eqc_ex.git", {branch, "rebar-for-deps"}}}]
+                 [{eqc_ex, ".*", {git, "https://github.com/Quviq/eqc_ex.git"}}]
          end,
 
 CfgDeps = lists:flatmap(
