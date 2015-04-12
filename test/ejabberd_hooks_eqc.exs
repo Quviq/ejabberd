@@ -75,9 +75,9 @@ defp gen_any_handler() do
       {:fn, _, _} -> return {seq, h}
       _ -> let node <- weighted_default({2, nil}, {1, gen_node}) do
              return {seq, set_node.(node, h)}
-           end
+        end
     end end
-end
+  end
 
 # -- Distribution -----------------------------------------------------------
 
@@ -125,18 +125,18 @@ def handler_key(name, {seq, handler}) do
   key =
     case handler do
       %{fun: {:fn, arity, id}} ->
-        {seq, :undefined, anonymous_fun(name, arity, id, seq)}
+        {seq, :undefined, anonymous_fun(name, arity, id, seq), :record}
       %{fun: {mod, fun}, node: node} ->
-        {seq, mk_node(node), mod, fun}
+        {seq, mk_node(node), mod, fun, :record}
       %{fun: {mod, fun}} ->
-        {seq, mod, fun}
+        {seq, mod, fun, :record}
     end
   {handler.host, key}
 end
 
-def add_handler(state, name, h, seq) do
+def add_handler_state(state, name, h, seq) do
   handler = {seq, h}
-                 # usort handlers based on handler_key()
+  # usort handlers based on handler_key()
   new_handlers = :lists.usort(fn(h1, h2) -> handler_key(name, h1) <= handler_key(name, h2) end,
                               [handler|get_handlers(state, name)])
   %{state | hooks: Map.put(state.hooks, name, new_handlers),
@@ -191,62 +191,62 @@ defp mk_host(h),        do: h
 
 # --- add a handler ---
 
-def add_args(state) do
+def add_handler_args(state) do
   [gen_hook_name(state), gen_host,
    fault(gen_faulty_handler, gen_handler), gen_sequence_number]
 end
 
 ## BUG: don't add :funX to core hooks since they don't work with multiple arity
 ##      functions
-def add_pre(_state, [name, _, {_, :funX}, _]), do: nil == core_hooks()[name]
-def add_pre(_state, _args), do: true
+def add_handler_pre(_state, [name, _, {_, :funX}, _]), do: nil == core_hooks()[name]
+def add_handler_pre(_state, _args), do: true
 
-def add(name, :no_host, {:fn, arity, id}, seq) do
-  :ejabberd_hooks.add(name, anonymous_fun(name, arity, id, seq), seq)
+def add_handler(name, :no_host, {:fn, arity, id}, seq) do
+  :ejabberd_hooks.add_handler(name, anonymous_fun(name, arity, id, seq), seq)
 end
-def add(name, :no_host, {mod, fun}, seq) do
-  :ejabberd_hooks.add(name, mod, fun, seq)
+def add_handler(name, :no_host, {mod, fun}, seq) do
+  :ejabberd_hooks.add_handler(name, mod, fun, seq)
 end
-def add(name, host, {:fn, arity, id}, seq) do
-  :ejabberd_hooks.add(name, host, anonymous_fun(name, arity, id, seq), seq)
+def add_handler(name, host, {:fn, arity, id}, seq) do
+  :ejabberd_hooks.add_handler(name, host, anonymous_fun(name, arity, id, seq), seq)
 end
-def add(name, host, {mod, fun}, seq) do
-  :ejabberd_hooks.add(name, host, mod, fun, seq)
+def add_handler(name, host, {mod, fun}, seq) do
+  :ejabberd_hooks.add_handler(name, host, mod, fun, seq)
 end
 
-def add_callouts(_state, [name, host, fun, seq]) do
+def add_handler_callouts(_state, [name, host, fun, seq]) do
   case check_fun(name, fun) do
-    :ok -> call do_add(name, %{host: mk_host(host), fun: fun}, seq)
+    :ok -> call do_add_handler(name, %{host: mk_host(host), fun: fun}, seq)
     err -> {:return, err}
   end
 end
 
-def do_add_next(state, _, [name, handler, seq]) do
-  add_handler(state, name, handler, seq)
+def do_add_handler_next(state, _, [name, handler, seq]) do
+  add_handler_state(state, name, handler, seq)
 end
 
 # --- add a distributed handler ---
 
-def add_dist_args(state) do
+def add_dist_handler_args(state) do
   [gen_hook_name(state), gen_host, gen_node,
    gen_module, gen_fun_name, gen_sequence_number]
 end
 
 ## BUG: don't add :funX to core hooks since they don't work with multiple arity
 ##      functions
-def add_dist_pre(_state, [name, _, _, _, :funX, _]), do: nil == core_hooks()[name]
-def add_dist_pre(_state, _args), do: true
+def add_dist_handler_pre(_state, [name, _, _, _, :funX, _]), do: nil == core_hooks()[name]
+def add_dist_handler_pre(_state, _args), do: true
 
-def add_dist(name, :no_host, node, mod, fun, seq) do
-  :ejabberd_hooks.add_dist(name, mk_node(node), mod, fun, seq)
+def add_dist_handler(name, :no_host, node, mod, fun, seq) do
+  :ejabberd_hooks.add_dist_handler(name, mk_node(node), mod, fun, seq)
 end
-def add_dist(name, host, node, mod, fun, seq) do
-  :ejabberd_hooks.add_dist(name, host, mk_node(node), mod, fun, seq)
+def add_dist_handler(name, host, node, mod, fun, seq) do
+  :ejabberd_hooks.add_dist_handler(name, host, mk_node(node), mod, fun, seq)
 end
 
-def add_dist_callouts(_state, [name, host, node, mod, fun, seq]) do
+def add_dist_handler_callouts(_state, [name, host, node, mod, fun, seq]) do
   case check_fun(name, {mod, fun}) do
-    :ok -> call do_add(name, %{host: mk_host(host), node: node, fun: {mod, fun}}, seq)
+    :ok -> call do_add_handler(name, %{host: mk_host(host), node: node, fun: {mod, fun}}, seq)
     err -> {:return, err}
   end
 end
