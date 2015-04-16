@@ -465,7 +465,7 @@ run1([], _Hook, _Args) ->
 %% It is not attempted again in case of failure. Next hook will be executed
 run1([{_Seq, Node, Module, Function, _CallType} | Ls], Hook, Args) ->
     %% MR: Should we have a safe rpc, like we have a safe apply or is bad_rpc enough ?
-    case rpc:call(Node, Module, Function, Args, ?TIMEOUT_DISTRIBUTED_HOOK) of
+    case remote_apply(Node, Module, Function, Args) of
 	timeout ->
 	    ?ERROR_MSG("Timeout on RPC to ~p~nrunning hook: ~p",
 		       [Node, {Hook, Args}]),
@@ -500,7 +500,7 @@ run1([{_Seq, Module, Function, _CallType} | Ls], Hook, Args) ->
 run_fold1([], _Hook, Val, _Args) ->
     Val;
 run_fold1([{_Seq, Node, Module, Function, CallType} | Ls], Hook, Val, Args) ->
-    case rpc:call(Node, Module, Function, format_args(Hook, CallType, Val, Args), ?TIMEOUT_DISTRIBUTED_HOOK) of
+    case remote_apply(Node, Module, Function, format_args(Hook, CallType, Val, Args)) of
 	{badrpc, Reason} ->
 	    ?ERROR_MSG("Bad RPC error to ~p: ~p~nrunning hook: ~p",
 		       [Node, Reason, {Hook, Args}]),
@@ -561,3 +561,14 @@ safe_apply(Module, Function, Args) ->
        true ->
             catch apply(Module, Function, Args)
     end.
+
+%% We do not need to catch here as the RPC module is already catching
+%% the error to wrap the return in a {badrpc, Error} tuple.
+%% Error can be {'EXIT', Reason}
+remote_apply(Node, Module, Function, Args) ->
+    if is_function(Function) ->
+            rpc:call(Node, erlang, apply, [Function, Args], ?TIMEOUT_DISTRIBUTED_HOOK);
+       true ->
+            rpc:call(Node, Module, Function, Args, ?TIMEOUT_DISTRIBUTED_HOOK)
+    end.
+    
