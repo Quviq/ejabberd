@@ -463,9 +463,8 @@ run1([], _Hook, _Args) ->
     ok;
 %% Run distributed hook on target node.
 %% It is not attempted again in case of failure. Next hook will be executed
-run1([{_Seq, Node, Module, Function, _CallType} | Ls], Hook, Args) ->
-    %% MR: Should we have a safe rpc, like we have a safe apply or is bad_rpc enough ?
-    case remote_apply(Node, Module, Function, Args) of
+run1([{_Seq, Node, Module, Function, CallType} | Ls], Hook, Args) ->
+    case remote_apply(Node, Module, Function, format_args(Hook, CallType, Args)) of
 	timeout ->
 	    ?ERROR_MSG("Timeout on RPC to ~p~nrunning hook: ~p",
 		       [Node, {Hook, Args}]),
@@ -483,8 +482,8 @@ run1([{_Seq, Node, Module, Function, _CallType} | Ls], Hook, Args) ->
 		      "The response is:~n~s", [self(), node(), Node, Res]), % debug code
 	    run1(Ls, Hook, Args)
     end;
-run1([{_Seq, Module, Function, _CallType} | Ls], Hook, Args) ->
-    Res = safe_apply(Module, Function, Args),
+run1([{_Seq, Module, Function, CallType} | Ls], Hook, Args) ->
+    Res = safe_apply(Module, Function, format_args(Hook, CallType, Args)),
     case Res of
 	{'EXIT', Reason} ->
 	    ?ERROR_MSG("~p~nrunning hook: ~p", [Reason, {Hook, Args}]),
@@ -540,6 +539,21 @@ extract_module_function({_Seq, _Node, Module, Function, _CallType}) ->
     {Module, Function}.
 
 %% This introduce backward compatible change for parameters (Args can be record or list)
+format_args(Hook, args, Args) ->
+    case Args of
+        A when is_list(A)  -> Args;
+        R when is_tuple(R) ->
+            case tuple_to_list(R) of
+                [Hook|RecordArgs] -> RecordArgs;
+                _ -> Args
+            end
+    end;
+format_args(Hook, record, Args) ->
+    case Args of
+        R when is_tuple(R) -> R;
+        A when is_list(A)  -> list_to_tuple([Hook | Args])
+    end.
+
 format_args(Hook, args, Val, Args) ->
     case Args of
         A when is_list(A)  -> [Val | Args];
