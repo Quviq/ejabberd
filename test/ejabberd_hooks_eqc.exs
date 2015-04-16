@@ -28,11 +28,11 @@ Record.defrecord :hook, Record.extract(:hook, from_lib: "ejabberd/include/ejabbe
 def core_hooks() do
   for h <- :ejabberd_hooks_core.all() do
     kvs = hook(h)
-    {kvs[:name], kvs[:arity]}
+    {kvs[:name], kvs[:handler_arity]}
   end
 end
 
-@max_params 3
+@max_params 2
 @max_sequence_number 5
 
 def gen_arg,             do: elements [:a, :b, :c, :ok, :error, :stop]
@@ -318,7 +318,7 @@ end
 
 # --- running a handler ---
 
-def run_args(state), do: [gen_hook_name(state), gen_host, gen_run_params]
+def run_args(state), do: [gen_hook_name(state), gen_host, gen_run_params(@max_params - 1)]
 
 def run(name, :no_host, params), do: :ejabberd_hooks.run(name, params)
 def run(name, host, params),     do: :ejabberd_hooks.run(name, host, params)
@@ -327,7 +327,7 @@ def run_callouts(state, [name, host, args0]) do
   args = mk_list(args0)
   call run_handlers(name,
     fn(_, :stop) -> {:stop, :ok}
-      (args, _)  -> args end,
+    (args, _)  -> args end,
     fn(_) -> :ok end,
     args, get_handlers(state, name, mk_host(host), length(args)))
 end
@@ -335,7 +335,7 @@ end
 # --- run_fold ---
 
 def run_fold_args(state) do
-  args = let xs <- gen_run_params(@max_params - 1) do
+  args = let xs <- gen_run_params(@max_params) do
            elements([xs, :erlang.list_to_tuple(xs)])
          end
   [gen_hook_name(state), gen_host, gen_arg, args]

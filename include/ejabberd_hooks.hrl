@@ -34,9 +34,9 @@
 -type hook_type()  :: run | run_fold.
 -type hook_scope() :: global | host.
 
--record(hook, {name  :: atom(),
-               arity :: pos_integer(),
-               handler_arity :: pos_integer(),
+-record(hook, {name  :: atom(),               
+               arity :: pos_integer(),          %% Arity to use to the add_handler wrapper
+               handler_arity :: pos_integer(),  %% Arity for the handler callback
                type  :: hook_type(),
                scope :: hook_scope()}).
 
