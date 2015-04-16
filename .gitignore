@@ -41,3 +41,8 @@ XmppAddr.hrl
 /test/*.beam
 /logs/
 /priv/sql
+
+# Ignore Quviq Quickcheck extra files
+*.qvq
+.eqc-info
+*.eqc
