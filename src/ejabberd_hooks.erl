@@ -91,7 +91,7 @@ add_handler(Hook, Function, Seq) when is_function(Function) ->
 
 -spec add_handler(atom(), HostOrModule :: binary() | atom(), fun() | atom() , number()) -> ok | {error, atom()}.
 add_handler(Hook, Host, Function, Seq) when is_function(Function) ->
-    add(Hook, Host, undefined, Function, Seq);
+    add_handler(Hook, Host, undefined, Function, Seq);
 
 %% @doc Add a module and function to this hook.
 %% The integer sequence is used to sort the calls: low number is called before high number.
@@ -538,8 +538,25 @@ extract_module_function({_Seq, Module, Function, _CallType}) ->
 extract_module_function({_Seq, _Node, Module, Function, _CallType}) ->
     {Module, Function}.
 
+is_core_hook(HookName) ->
+    Hooks = ejabberd_hooks_core:all(),
+    case lists:keyfind(HookName, 2, Hooks) of
+        false   -> false;
+        #hook{} -> true
+    end.
+
+%% Compliance layer (Can be removed in the future)
+%% ===============================================
+
 %% This introduce backward compatible change for parameters (Args can be record or list)
-format_args(Hook, args, Args) ->
+format_args(Hook, CallType, Args) ->
+    case is_core_hook(Hook) of
+        %% Do not change "custom" hooks type (Can be not yet migrated hooks)
+        false -> Args;
+        true  -> do_format_args(Hook, CallType, Args)
+    end.
+    
+do_format_args(Hook, args, Args) ->
     case Args of
         A when is_list(A)  -> Args;
         R when is_tuple(R) ->
@@ -548,13 +565,20 @@ format_args(Hook, args, Args) ->
                 _ -> Args
             end
     end;
-format_args(Hook, record, Args) ->
+do_format_args(Hook, record, Args) ->
     case Args of
         R when is_tuple(R) -> R;
         A when is_list(A)  -> list_to_tuple([Hook | Args])
     end.
 
-format_args(Hook, args, Val, Args) ->
+format_args(Hook, CallType, Val, Args) ->
+    case is_core_hook(Hook) of
+        %% Do not change "custom" hooks type (Can be not yet migrated hooks)
+        false -> Args;
+        true  -> do_format_args(Hook, CallType, Val, Args)
+    end.
+
+do_format_args(Hook, args, Val, Args) ->
     case Args of
         A when is_list(A)  -> [Val | Args];
         R when is_tuple(R) ->
@@ -563,11 +587,15 @@ format_args(Hook, args, Val, Args) ->
                 _ -> [Val | Args ]
             end
     end;
-format_args(Hook, record, Val, Args) ->
+do_format_args(Hook, record, Val, Args) ->
     case Args of
         R when is_tuple(R) -> [Val, R];
         A when is_list(A)  -> [Val, list_to_tuple([Hook | Args])]
     end.
+
+
+%% Perform hooks calls (actually)
+%% ==============================
 
 safe_apply(Module, Function, Args) ->
     if is_function(Function) ->
@@ -585,4 +613,3 @@ remote_apply(Node, Module, Function, Args) ->
        true ->
             rpc:call(Node, Module, Function, Args, ?TIMEOUT_DISTRIBUTED_HOOK)
     end.
-    
