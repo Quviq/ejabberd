@@ -329,7 +329,7 @@ def run_callouts(state, [name, host, args0]) do
     fn(_, :stop) -> {:stop, :ok}
     (args, _)  -> args end,
     fn(_) -> :ok end,
-    args, get_handlers(state, name, mk_host(host), length(args)))
+    args, get_handlers(state, name, mk_host(host), args_length(name, args)))
 end
 
 # --- run_fold ---
@@ -351,7 +351,15 @@ def run_fold_callouts(state, [name, host, val, args0]) do
       (_, {:stop, val}) -> {:stop, val}
       ([_|args], res)   -> [res|args] end,
     fn([val|_]) -> val end, [val|args],
-    get_handlers(state, name, mk_host(host), length(args) + 1))
+    get_handlers(state, name, mk_host(host), args_length(name, args) + 1))
+end
+
+def args_length(hookname, args) do
+  case core_hooks()[hookname] do
+    nil -> length(args)
+    # core_hooks register with new add_handler API are called with record:
+    _   -> 1
+  end  
 end
 
 # This helper command generalises run and run_fold. It takes two functions:
