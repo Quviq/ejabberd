@@ -574,7 +574,7 @@ do_format_args(Hook, record, Args) ->
 format_args(Hook, CallType, Val, Args) ->
     case is_core_hook(Hook) of
         %% Do not change "custom" hooks type (Can be not yet migrated hooks)
-        false -> Args;
+        false -> [Val|Args];
         true  -> do_format_args(Hook, CallType, Val, Args)
     end.
 
