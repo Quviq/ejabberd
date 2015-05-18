@@ -302,7 +302,7 @@ handle_call({delete_all}, _From, State) ->
 
 handle_call({get_hooks_with_handlers}, _From, State) ->
     Hooks = ets:foldl(fun({{Hook, _Host}, _}, Acc) -> [Hook|Acc] end, [], hooks),
-    %% This is a case a hook is both global / local, but I do not think this can be the case:
+    %% This is in case a hook is both global / local, but I do not think this can be the case:
     Reply = lists:usort(Hooks),
     {reply, Reply, State};
 
@@ -466,31 +466,43 @@ run1([], _Hook, _Args) ->
 run1([{_Seq, Node, Module, Function, CallType} | Ls], Hook, Args) ->
     case remote_apply(Node, Module, Function, format_args(Hook, CallType, Args)) of
 	timeout ->
+            io:format("Timeout on RPC to ~p~nrunning hook: ~p",
+		       [Node, {Hook, Args}]),
 	    ?ERROR_MSG("Timeout on RPC to ~p~nrunning hook: ~p",
 		       [Node, {Hook, Args}]),
 	    run1(Ls, Hook, Args);
 	{badrpc, Reason} ->
+            io:format("Bad RPC error to ~p: ~p~nrunning hook: ~p",
+		       [Node, Reason, {Hook, Args}]),
 	    ?ERROR_MSG("Bad RPC error to ~p: ~p~nrunning hook: ~p",
 		       [Node, Reason, {Hook, Args}]),
 	    run1(Ls, Hook, Args);
 	stop ->
+            io:format("~nThe process ~p in node ~p ran a hook in node ~p.~n"
+		      "Stop.", [self(), node(), Node]), % debug code
 	    ?INFO_MSG("~nThe process ~p in node ~p ran a hook in node ~p.~n"
 		      "Stop.", [self(), node(), Node]), % debug code
 	    ok;
 	Res ->
+            io:format("~nThe process ~p in node ~p ran a hook in node ~p.~n"
+		      "The response is: ~n~p", [self(), node(), Node, Res]), % debug code
 	    ?INFO_MSG("~nThe process ~p in node ~p ran a hook in node ~p.~n"
-		      "The response is:~n~s", [self(), node(), Node, Res]), % debug code
+		      "The response is: ~n~p", [self(), node(), Node, Res]), % debug code
 	    run1(Ls, Hook, Args)
     end;
 run1([{_Seq, Module, Function, CallType} | Ls], Hook, Args) ->
+    io:format("MREMOND1\n",[]),
     Res = safe_apply(Module, Function, format_args(Hook, CallType, Args)),
     case Res of
 	{'EXIT', Reason} ->
+            io:format("~p~nrunning hook: ~p", [Reason, {Hook, Args}]),
 	    ?ERROR_MSG("~p~nrunning hook: ~p", [Reason, {Hook, Args}]),
 	    run1(Ls, Hook, Args);
 	stop ->
+            io:format("stop", []),
 	    ok;
 	_ ->
+            io:format("run 1 loop", []),
 	    run1(Ls, Hook, Args)
     end.
 
@@ -567,8 +579,9 @@ do_format_args(Hook, args, Args) ->
     end;
 do_format_args(Hook, record, Args) ->
     case Args of
-        R when is_tuple(R) -> R;
-        A when is_list(A)  -> list_to_tuple([Hook | Args])
+        R when is_tuple(R) -> [R];
+        [] -> []; %% Do not convert empty parameter list to "empty record tuple"
+        A when is_list(A)  -> [list_to_tuple([Hook | Args])]
     end.
 
 format_args(Hook, CallType, Val, Args) ->

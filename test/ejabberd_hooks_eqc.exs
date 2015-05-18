@@ -32,17 +32,35 @@ def core_hooks() do
   end
 end
 
+def core_hooks(type) do
+  :ejabberd_hooks_core.all()
+  |> Enum.filter_map(
+    fn(h) ->
+      kvs = hook(h)
+      case kvs[:type] do
+        type -> true
+        _ -> false
+      end
+    end,
+    fn(h) ->
+      kvs = hook(h)
+      {kvs[:name], kvs[:handler_arity]}
+    end
+  )
+end
+
 @max_params 2
 @max_sequence_number 5
 
-def gen_arg,             do: elements [:a, :b, :c, :ok, :error, :stop]
-def gen_hook_name,       do: elements([:hook1, :hook2] ++ for {h, _} <- core_hooks, do: h)
-
+def gen_arg,              do: elements [:a, :b, :c, :ok, :error, :stop]
+def gen_hook_name(:any),  do: elements([:hook1, :hook2] ++ for {h, _} <- core_hooks, do: h)
+def gen_hook_name(type),  do: elements([:hook1, :hook2] ++ for {h, _} <- core_hooks(type), do: h)
+  
 # Favour hooks with handlers.
-def gen_hook_name(state) do
+def gen_hook_name(state, type) do
   case Map.keys(state.hooks) do
-    []    -> gen_hook_name
-    hooks -> frequency [{9, elements(hooks)}, {1, gen_hook_name}]
+    []    -> gen_hook_name(type)
+    hooks -> frequency [{9, elements(hooks)}, {1, gen_hook_name(type)}]
   end end
 
 def gen_result           do
@@ -172,7 +190,7 @@ def check_fun(_, {:bad_module, _}), do: {:error, :module_not_found}
 def check_fun(_, {_, :bad_fun}),    do: {:error, :undefined_function}
 def check_fun(name, fun) do
   case core_hooks()[name] do
-    nil   -> :ok
+    arity when is_nil(arity)   -> :ok
     arity ->
       case arity in get_arity(fun) do
         true  -> :ok
@@ -192,7 +210,7 @@ defp mk_host(h),        do: h
 # --- add a handler ---
 
 def add_handler_args(state) do
-  [gen_hook_name(state), gen_host,
+  [gen_hook_name(state, :any), gen_host,
    fault(gen_faulty_handler, gen_handler), gen_sequence_number]
 end
 
@@ -228,7 +246,7 @@ end
 # --- add a distributed handler ---
 
 def add_dist_handler_args(state) do
-  [gen_hook_name(state), gen_host, gen_node,
+  [gen_hook_name(state, :any), gen_host, gen_node,
    gen_module, gen_fun_name, gen_sequence_number]
 end
 
@@ -298,7 +316,7 @@ end
 # --- removing all handlers for a module ---
 
 def remove_module_handlers_args(state) do
-  [gen_hook_name(state), gen_host, gen_module]
+  [gen_hook_name(state, :any), gen_host, gen_module]
 end
 
 def remove_module_handlers(name, :no_host, module) do
@@ -318,7 +336,29 @@ end
 
 # --- running a handler ---
 
-def run_args(state), do: [gen_hook_name(state), gen_host, gen_run_params(@max_params - 1)]
+def run_pre(_state, [name, _, _]) do
+  case core_hooks()[name] do
+    # This is not a core run hook:
+    arity when is_integer(arity) and not arity == 1 -> false
+    _ -> true
+  end
+end
+
+def run_args(state) do
+  let name <- gen_hook_name(state, :run) do
+    let nb_params <- choose(0, @max_params) do
+        IO.puts "MREMOND core hooks = #{name}"
+      case core_hooks()[name] do
+        arity when is_nil(arity) ->
+          IO.puts("1. Arity = #{arity}")
+          [name, gen_host, gen_run_params(nb_params)]
+        arity                    ->
+          IO.puts("2. Arity = #{arity}")
+          [name, gen_host, gen_run_params(arity)]
+      end
+    end
+  end
+end
 
 def run(name, :no_host, params), do: :ejabberd_hooks.run(name, params)
 def run(name, host, params),     do: :ejabberd_hooks.run(name, host, params)
@@ -334,11 +374,39 @@ end
 
 # --- run_fold ---
 
+def run_fold_pre(_state, [name, _, _, _]) do
+  case core_hooks()[name] do
+    # This is not a core run_fold hook:
+    arity when is_integer(arity) and not arity == 2 -> false
+    _ -> true
+  end
+end
+
 def run_fold_args(state) do
-  args = let xs <- gen_run_params(@max_params) do
-           elements([xs, :erlang.list_to_tuple(xs)])
-         end
-  [gen_hook_name(state), gen_host, gen_arg, args]
+  let name <- gen_hook_name(state, :run_fold) do
+    let nb_params <- choose(0, @max_params) do
+      case core_hooks()[name] do
+        arity when is_nil(arity) ->
+          [name, gen_host, gen_arg, gen_run_params(nb_params)]
+        arity ->
+          params = let p <- gen_run_params(nb_params) do
+                     :erlang.list_to_tuple(p)
+                   end
+          [name, gen_host, gen_arg, params]
+      end
+    end
+  end
+end
+
+def run_fold_args(state) do
+  let name <- gen_hook_name(state, :run_fold) do
+    let nb_params <- choose(0, @max_params ) do
+      case core_hooks()[name] do
+        arity when is_nil(arity) -> [name, gen_host, gen_run_params(nb_params)]
+        arity                    -> [name, gen_host, gen_run_params(arity)]
+      end
+    end
+  end
 end
 
 def run_fold(name, :no_host, val, args), do: :ejabberd_hooks.run_fold(name, val, args)
@@ -351,14 +419,20 @@ def run_fold_callouts(state, [name, host, val, args0]) do
       (_, {:stop, val}) -> {:stop, val}
       ([_|args], res)   -> [res|args] end,
     fn([val|_]) -> val end, [val|args],
-    get_handlers(state, name, mk_host(host), args_length(name, args) + 1))
+    get_handlers(state, name, mk_host(host), args_length(name, args, 1)))
 end
 
 def args_length(hookname, args) do
+  args_length(hookname, args, 0)
+end
+
+def args_length(hookname, args, extra_args_count) do
   case core_hooks()[hookname] do
-    nil -> length(args)
-    # core_hooks register with new add_handler API are called with record:
-    _   -> 1
+    arity when is_nil(arity) -> length(args) + extra_args_count
+    # We do not generate empty record when passing no parameter
+    0 -> 0 + extra_args_count   
+    # core_hooks register with new add_handler API are called with record:                          
+    arity   -> arity
   end  
 end
 
@@ -386,7 +460,7 @@ end
 
 # --- get info on a handler ---
 
-def get_args(state), do: [gen_hook_name(state), gen_host]
+def get_args(state), do: [gen_hook_name(state, :any), gen_host]
 
 def get(name, :no_host), do: :ejabberd_hooks.get_handlers(name)
 def get(name, host),     do: :ejabberd_hooks.get_handlers(name, host)
