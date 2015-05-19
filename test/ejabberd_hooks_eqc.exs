@@ -40,20 +40,11 @@ def core_hooks() do
 end
 
 def core_hooks(type) do
-  :ejabberd_hooks_core.all()
-  |> Enum.filter_map(
-    fn(h) ->
-      kvs = hook(h)
-      case kvs[:type] do
-        ^type -> true
-        _ -> false
-      end
-    end,
-    fn(h) ->
-      kvs = hook(h)
-      {kvs[:name], kvs[:handler_arity]}
-    end
-  )
+  for h <- :ejabberd_hooks_core.all(),
+      kvs = hook(h),
+      kvs[:type] == type do
+    {kvs[:name], kvs[:handler_arity]}
+  end
 end
 
 def is_core_hook(name), do: not is_nil(core_hooks()[name])
