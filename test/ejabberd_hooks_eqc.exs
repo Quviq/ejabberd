@@ -38,7 +38,7 @@ def core_hooks(type) do
     fn(h) ->
       kvs = hook(h)
       case kvs[:type] do
-        type -> true
+        ^type -> true
         _ -> false
       end
     end,
@@ -55,7 +55,7 @@ end
 def gen_arg,              do: elements [:a, :b, :c, :ok, :error, :stop]
 def gen_hook_name(:any),  do: elements([:hook1, :hook2] ++ for {h, _} <- core_hooks, do: h)
 def gen_hook_name(type),  do: elements([:hook1, :hook2] ++ for {h, _} <- core_hooks(type), do: h)
-  
+
 # Favour hooks with handlers.
 def gen_hook_name(state, type) do
   case Map.keys(state.hooks) do
@@ -430,10 +430,10 @@ def args_length(hookname, args, extra_args_count) do
   case core_hooks()[hookname] do
     arity when is_nil(arity) -> length(args) + extra_args_count
     # We do not generate empty record when passing no parameter
-    0 -> 0 + extra_args_count   
-    # core_hooks register with new add_handler API are called with record:                          
+    0 -> 0 + extra_args_count
+    # core_hooks register with new add_handler API are called with record:
     arity   -> arity
-  end  
+  end
 end
 
 # This helper command generalises run and run_fold. It takes two functions:
