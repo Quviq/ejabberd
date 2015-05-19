@@ -21,6 +21,9 @@ require Record
 #   ejabberd runs, not on the node where the function is supposed to run. It's
 #   conceivable that you might have different code on different nodes.
 
+# - Removing a handler at a remote node (with delete_dist) also removes it
+#   locally.
+
 # -- Generators -------------------------------------------------------------
 
 Record.defrecord :hook, Record.extract(:hook, from_lib: "ejabberd/include/ejabberd_hooks.hrl")
@@ -116,6 +119,13 @@ end
 def mk_node(name),       do: mk_node(name, this_host)
 def mk_node(name, host), do: :erlang.list_to_atom(:lists.concat([name, '@', host]))
 
+# Compare two handlers for the purpose of delete. This should simply be
+# h1 == h2, but it gets messy due to the following bug:
+# BUG: delete_dist removes local handlers in addition to the remote handler.
+defp compare_handler(h1=%{node: _}, h2=%{node: _}), do: h1 == h2
+defp compare_handler(%{node: _}, _), do: false
+defp compare_handler(h1, h2),        do: h1 == Map.delete(h2, :node)
+
 # -- State ------------------------------------------------------------------
 
 # hooks_with_past_handlers are used to model the buggy behaviour of
@@ -172,7 +182,9 @@ def filter_handlers(state, name, pred) do
 end
 
 def delete_handler(state, name, handler, seq) do
-  filter_handlers(state, name, fn(s, h) -> {s, h} != {seq, handler} end)
+  filter_handlers(state, name, fn(s, h) ->
+    s != seq or not compare_handler(h, handler)
+  end)
 end
 
 def get_arity({mod, fun}),      do: get_api_arity(mod, fun)
