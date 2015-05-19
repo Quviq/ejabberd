@@ -49,6 +49,8 @@ def core_hooks(type) do
   )
 end
 
+def is_core_hook(name), do: not is_nil(core_hooks()[name])
+
 @max_params 2
 @max_sequence_number 5
 
@@ -346,17 +348,7 @@ end
 
 def run_args(state) do
   let name <- gen_hook_name(state, :run) do
-    let nb_params <- choose(0, @max_params) do
-        IO.puts "MREMOND core hooks = #{name}"
-      case core_hooks()[name] do
-        arity when is_nil(arity) ->
-          IO.puts("1. Arity = #{arity}")
-          [name, gen_host, gen_run_params(nb_params)]
-        arity                    ->
-          IO.puts("2. Arity = #{arity}")
-          [name, gen_host, gen_run_params(arity)]
-      end
-    end
+    [name, gen_host, gen_run_params]
   end
 end
 
@@ -369,43 +361,15 @@ def run_callouts(state, [name, host, args0]) do
     fn(_, :stop) -> {:stop, :ok}
     (args, _)  -> args end,
     fn(_) -> :ok end,
+    fn(args) -> make_record(name, args) end,
     args, get_handlers(state, name, mk_host(host), args_length(name, args)))
 end
 
 # --- run_fold ---
 
-def run_fold_pre(_state, [name, _, _, _]) do
-  case core_hooks()[name] do
-    # This is not a core run_fold hook:
-    arity when is_integer(arity) and not arity == 2 -> false
-    _ -> true
-  end
-end
-
 def run_fold_args(state) do
   let name <- gen_hook_name(state, :run_fold) do
-    let nb_params <- choose(0, @max_params) do
-      case core_hooks()[name] do
-        arity when is_nil(arity) ->
-          [name, gen_host, gen_arg, gen_run_params(nb_params)]
-        arity ->
-          params = let p <- gen_run_params(nb_params) do
-                     :erlang.list_to_tuple(p)
-                   end
-          [name, gen_host, gen_arg, params]
-      end
-    end
-  end
-end
-
-def run_fold_args(state) do
-  let name <- gen_hook_name(state, :run_fold) do
-    let nb_params <- choose(0, @max_params ) do
-      case core_hooks()[name] do
-        arity when is_nil(arity) -> [name, gen_host, gen_run_params(nb_params)]
-        arity                    -> [name, gen_host, gen_run_params(arity)]
-      end
-    end
+    [name, gen_host, gen_arg, gen_run_params]
   end
 end
 
@@ -414,46 +378,68 @@ def run_fold(name, host, val, args),     do: :ejabberd_hooks.run_fold(name, host
 
 def run_fold_callouts(state, [name, host, val, args0]) do
   args = mk_list(args0)
+  arity =
+    case is_core_hook(name) do
+      true  -> 2
+      false -> 1 + length(args)
+    end
   call run_handlers(name,
     fn(_, :stop)        -> {:stop, :stopped}
       (_, {:stop, val}) -> {:stop, val}
       ([_|args], res)   -> [res|args] end,
-    fn([val|_]) -> val end, [val|args],
-    get_handlers(state, name, mk_host(host), args_length(name, args, 1)))
+    fn([val|_]) -> val end,
+    fn([val|args]) ->
+      case is_core_hook(name) do
+        false -> [val|args]
+        true  -> [val, :erlang.list_to_tuple([name|args])]
+      end end,
+    [val|args], get_handlers(state, name, mk_host(host), arity))
+    # # Issue: run and run_fold behave differently on empty argument lists
+    # fn([val|args]) -> [val|make_record(name, args)] end,
+    # [val|args], get_handlers(state, name, mk_host(host), 1 + args_length(name, args)))
 end
 
 def args_length(hookname, args) do
-  args_length(hookname, args, 0)
-end
-
-def args_length(hookname, args, extra_args_count) do
-  case core_hooks()[hookname] do
-    arity when is_nil(arity) -> length(args) + extra_args_count
-    # We do not generate empty record when passing no parameter
-    0 -> 0 + extra_args_count
-    # core_hooks register with new add_handler API are called with record:
-    arity   -> arity
+  case is_core_hook(hookname) do
+    false -> length(args)
+    true  ->
+      case args do
+        # We do not generate empty record when passing no parameter
+        [] -> 0
+        _  -> 1
+      end
   end
 end
+
+# We do not generate empty record when passing no parameter
+def make_record(_, []), do: []
+def make_record(name, args) when is_list(args) do
+  case is_core_hook(name) do
+    true  -> [:erlang.list_to_tuple [name|args]]
+    false -> args
+  end
+end
+def make_record(_, args), do: args
+
 
 # This helper command generalises run and run_fold. It takes two functions:
 #   next(args, res) - computes the arguments for the next handler from the
 #                     current arguments and the result of the current handler,
 #                     or {:stop, val} to stop and return val
 #   ret(args)       - computes the final result given the current arguments
-def run_handlers_callouts(_state, [_, _, ret, args, []]), do: {:return, ret.(args)}
-def run_handlers_callouts(_state, [name, next, ret, args, [{seq, h}|handlers]]) do
+def run_handlers_callouts(_state, [_, _, ret, _, s, []]), do: {:return, ret.(s)}
+def run_handlers_callouts(_state, [name, next, ret, args, s, [{seq, h}|handlers]]) do
   match res =
     case h.fun do
-      {mod, fun}   -> callout(mod, fun, args, gen_result)
-      {:fn, _, id} -> callout :handlers.anon(name, seq, args, id), return: gen_result
+      {mod, fun}   -> callout(mod, fun, args.(s), gen_result)
+      {:fn, _, id} -> callout :handlers.anon(name, seq, args.(s), id), return: gen_result
     end
   case res do
-    exception(_) -> call run_handlers(name, next, ret, args, handlers)
+    exception(_) -> call run_handlers(name, next, ret, args, s, handlers)
     _            ->
-      case next.(args, res) do
+      case next.(s, res) do
         {:stop, val} -> {:return, val}
-        args1        -> call run_handlers(name, next, ret, args1, handlers)
+        s1           -> call run_handlers(name, next, ret, args, s1, handlers)
       end
   end
 end
