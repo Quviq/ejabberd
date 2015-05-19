@@ -83,8 +83,16 @@ def gen_result           do
   end
 end
 
-def gen_run_params,      do: gen_run_params(@max_params)
-def gen_run_params(n),   do: :eqc_gen.list(n, gen_arg)
+def gen_run_params(name), do: gen_run_params(name, @max_params)
+def gen_run_params(name, n) do
+  let args <- :eqc_gen.list(n, gen_arg) do
+    case is_core_hook(name) do
+      true  -> elements [args, :erlang.list_to_tuple([name|args])]
+      false -> return args  # only core hooks can be records
+    end
+  end
+end
+
 def gen_sequence_number, do: choose(0, @max_sequence_number)
 def gen_host,            do: elements [:no_host, :global, this_host]
 def gen_node,            do: elements [this_node() | child_nodes()]
@@ -216,9 +224,6 @@ def check_fun(name, fun) do
       end
   end
 end
-
-defp mk_list(xs) when is_list(xs), do: xs
-defp mk_list(x), do: [x]
 
 defp mk_host(:no_host), do: :global
 defp mk_host(h),        do: h
@@ -354,25 +359,20 @@ end
 
 # --- running a handler ---
 
-def run_pre(_state, [name, _, _]) do
-  case core_hooks()[name] do
-    # This is not a core run hook:
-    arity when is_integer(arity) and not arity == 1 -> false
-    _ -> true
-  end
+def run_pre(_state, [name, _, args]) do
+  is_core_hook(name) or is_list(args) # only core hooks can be called with record
 end
 
 def run_args(state) do
   let name <- gen_hook_name(state, :run) do
-    [name, gen_host, gen_run_params]
+    [name, gen_host, gen_run_params(name)]
   end
 end
 
 def run(name, :no_host, params), do: :ejabberd_hooks.run(name, params)
 def run(name, host, params),     do: :ejabberd_hooks.run(name, host, params)
 
-def run_callouts(state, [name, host, args0]) do
-  args = mk_list(args0)
+def run_callouts(state, [name, host, args]) do
   call run_handlers(name,
     fn(_, :stop) -> {:stop, :ok}
     (args, _)  -> args end,
@@ -383,42 +383,43 @@ end
 
 # --- run_fold ---
 
+def run_fold_pre(_state, [name, _, _, args]) do
+  is_core_hook(name) or is_list(args) # only core hooks can be called with record
+end
+
 def run_fold_args(state) do
   let name <- gen_hook_name(state, :run_fold) do
-    [name, gen_host, gen_arg, gen_run_params]
+    [name, gen_host, gen_arg, gen_run_params(name, @max_params - 1)]
   end
 end
 
 def run_fold(name, :no_host, val, args), do: :ejabberd_hooks.run_fold(name, val, args)
 def run_fold(name, host, val, args),     do: :ejabberd_hooks.run_fold(name, host, val, args)
 
-def run_fold_callouts(state, [name, host, val, args0]) do
-  args = mk_list(args0)
+def run_fold_callouts(state, [name, host, val, args]) do
   arity =
     case is_core_hook(name) do
-      true  -> 2
-      false -> 1 + length(args)
+      false when is_list(args) -> 1 + length(args)
+      _ -> 2
     end
   call run_handlers(name,
     fn(_, :stop)        -> {:stop, :stopped}
       (_, {:stop, val}) -> {:stop, val}
-      ([_|args], res)   -> [res|args] end,
-    fn([val|_]) -> val end,
-    fn([val|args]) ->
-      case is_core_hook(name) do
-        false -> [val|args]
-        true  -> [val, :erlang.list_to_tuple([name|args])]
+      ({_, args}, res)  -> {res, args} end,
+    fn({val, _}) -> val end,
+    fn({val, args}) ->
+      case {is_core_hook(name), is_list(args)} do
+        {_, false} -> [val, args]
+        {false, _} -> [val | args]
+        {true,  _} -> [val, :erlang.list_to_tuple([name|args])]
       end end,
-    [val|args], get_handlers(state, name, mk_host(host), arity))
-    # # Issue: run and run_fold behave differently on empty argument lists
-    # fn([val|args]) -> [val|make_record(name, args)] end,
-    # [val|args], get_handlers(state, name, mk_host(host), 1 + args_length(name, args)))
+    {val, args}, get_handlers(state, name, mk_host(host), arity))
 end
 
 def args_length(hookname, args) do
   case is_core_hook(hookname) do
-    false -> length(args)
-    true  ->
+    false when is_list(args) -> length(args)
+    _ ->
       case args do
         # We do not generate empty record when passing no parameter
         [] -> 0
@@ -435,7 +436,7 @@ def make_record(name, args) when is_list(args) do
     false -> args
   end
 end
-def make_record(_, args), do: args
+def make_record(_, args), do: [args]
 
 
 # This helper command generalises run and run_fold. It takes two functions:
