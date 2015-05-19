@@ -21,6 +21,10 @@ require Record
 #   ejabberd runs, not on the node where the function is supposed to run. It's
 #   conceivable that you might have different code on different nodes.
 
+# - The behaviours of 'run' and 'run_fold' are inconsistent on empty argument
+#   lists and 'record' call type. In the case of 'run' no arguments are passed,
+#   but for 'run_fold' an empty record is passed.
+
 # - Removing a handler at a remote node (with delete_dist) also removes it
 #   locally.
 
