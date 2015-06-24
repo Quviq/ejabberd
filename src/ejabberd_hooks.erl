@@ -350,17 +350,19 @@ handle_add(HookName, Host, HookTuple) ->
                 {Module, Function} ->
                     case catch Module:module_info(exports) of
                         Exports when is_list(Exports) ->
-                            case lists:keyfind(Function, 1, Exports) of
-                                false ->
+                            case [ A || {F, A} <- Exports, F == Function ] of
+                                [] ->
                                     ?ERROR_MSG("Cannot add hook ~p. Function ~p not exported from module ~p",
                                                [HookName, Function, Module]),
                                     {error, undefined_function};
-                                {Function, Arity} ->
-                                    do_handle_add(HookName, Host, HookTuple);
-                                {Function, WrongArity} ->
-                                    ?ERROR_MSG("Cannot add hook ~p with fun. Incorrect arity ~p (expected ~p)",
-                                               [HookName, WrongArity, Arity]),
-                                    {error, incorrect_arity}
+                                Arities ->
+                                  case lists:member(Arity, Arities) of
+                                    true  -> do_handle_add(HookName, Host, HookTuple);
+                                    false ->
+                                      ?ERROR_MSG("Cannot add hook ~p with fun. Incorrect arity ~p (expected ~p)",
+                                                 [HookName, hd(Arities), Arity]),
+                                      {error, incorrect_arity}
+                                  end
                             end;
                         _ ->
                             ?ERROR_MSG("Cannot add hook ~p. Module ~p not found",
