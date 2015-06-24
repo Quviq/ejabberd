@@ -8,9 +8,6 @@ require Record
 
 # -- Issues -----------------------------------------------------------------
 
-# - get_hooks_with_handlers returns hooks that have had handlers at some point,
-#   not just hooks that currently have handlers.
-
 # - The arity check for core_hooks doesn't work if the same handler is defined
 #   for multiple arities.
 
@@ -131,9 +128,7 @@ defp compare_handler(h1, h2),        do: h1 == Map.delete(h2, :node)
 
 # -- State ------------------------------------------------------------------
 
-# hooks_with_past_handlers are used to model the buggy behaviour of
-# get_hooks_with_handlers (see below).
-def initial_state, do: %{hooks: %{}, hooks_with_past_handlers: %{}}
+def initial_state, do: %{hooks: %{}}
 
 def get_handlers(state, name) do
   case Map.fetch(state.hooks, name) do
@@ -172,8 +167,7 @@ def add_handler_state(state, name, h, seq) do
   # usort handlers based on handler_key()
   new_handlers = :lists.usort(fn(h1, h2) -> handler_key(name, h1) <= handler_key(name, h2) end,
                               [handler|get_handlers(state, name)])
-  %{state | hooks: Map.put(state.hooks, name, new_handlers),
-            hooks_with_past_handlers: Map.put(state.hooks_with_past_handlers, name, true) }
+  %{state | hooks: Map.put(state.hooks, name, new_handlers)}
 end
 
 def filter_handlers(state, name, pred) do
@@ -472,9 +466,7 @@ def get_hooks_with_handlers_args(_state), do: []
 
 def get_hooks_with_handlers, do: :ejabberd_hooks.get_hooks_with_handlers
 
-# BUG: get_hooks_with_handlers returns hooks that have had handlers at some
-#      point. They don't necessarily have any handlers at the moment.
-def get_hooks_with_handlers_return(state, []), do: Map.keys state.hooks_with_past_handlers
+def get_hooks_with_handlers_return(state, []), do: Map.keys state.hooks
 
 # -- Common -----------------------------------------------------------------
 
