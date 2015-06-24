@@ -301,7 +301,8 @@ handle_call({delete_all}, _From, State) ->
     {reply, Reply, State};
 
 handle_call({get_hooks_with_handlers}, _From, State) ->
-    Hooks = ets:foldl(fun({{Hook, _Host}, _}, Acc) -> [Hook|Acc] end, [], hooks),
+    Hooks = ets:foldl(fun({_, []}, Acc)            -> Acc;
+                         ({{Hook, _Host}, _}, Acc) -> [Hook|Acc] end, [], hooks),
     %% This is in case a hook is both global / local, but I do not think this can be the case:
     Reply = lists:usort(Hooks),
     {reply, Reply, State};
