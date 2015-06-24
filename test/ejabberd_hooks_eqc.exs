@@ -8,9 +8,6 @@ require Record
 
 # -- Issues -----------------------------------------------------------------
 
-# - The arity check for core_hooks doesn't work if the same handler is defined
-#   for multiple arities.
-
 # - Sorting handlers with the same sequence number on the fun value leads to
 #   somewhat unpredictable behaviour.
 
@@ -218,9 +215,6 @@ def add_handler_args(state) do
    fault(gen_faulty_handler, gen_handler), gen_sequence_number]
 end
 
-## BUG: don't add :funX to core hooks since they don't work with multiple arity
-##      functions
-def add_handler_pre(_state, [name, _, {_, :funX}, _]), do: nil == core_hooks()[name]
 def add_handler_pre(_state, _args), do: true
 
 def add_handler(name, :no_host, {:fn, arity, id}, seq) do
@@ -254,9 +248,6 @@ def add_dist_handler_args(state) do
    gen_module, gen_fun_name, gen_sequence_number]
 end
 
-## BUG: don't add :funX to core hooks since they don't work with multiple arity
-##      functions
-def add_dist_handler_pre(_state, [name, _, _, _, :funX, _]), do: nil == core_hooks()[name]
 def add_dist_handler_pre(_state, _args), do: true
 
 def add_dist_handler(name, :no_host, node, mod, fun, seq) do
