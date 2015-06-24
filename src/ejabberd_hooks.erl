@@ -279,7 +279,7 @@ handle_call({add, Hook, Host, Node, Module, Function, Seq, CallType}, _From, Sta
     {reply, Reply, State};
 
 handle_call({delete, Hook, Host, Module, Function, Seq}, _From, State) ->
-    Reply = handle_delete(Hook, Host, Seq, undefined, Module, Function),
+    Reply = handle_delete(Hook, Host, Seq, node(), Module, Function),
     {reply, Reply, State};
 handle_call({delete, Hook, Host, Node, Module, Function, Seq}, _From, State) ->
     Reply = handle_delete(Hook, Host, Seq, Node, Module, Function),
@@ -396,7 +396,7 @@ handle_delete(Hook, Host, Seq, Node, Module, Function) ->
         [{_, Ls}] ->
             Filter = fun(HookTuple) ->
                              case HookTuple of
-                                 {Seq, Module, Function, _CallType} -> false;
+                                 {Seq, Module, Function, _CallType} -> Node /= node();
                                  {Seq, Node, Module, Function, _CallType} -> false;
                                  _ -> true
                              end
