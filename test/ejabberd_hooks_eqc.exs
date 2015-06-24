@@ -245,21 +245,22 @@ end
 
 def add_dist_handler_args(state) do
   [gen_hook_name(state, :any), gen_host, gen_node,
-   gen_module, gen_fun_name, gen_sequence_number]
+   fault(gen_faulty_handler, {gen_module, gen_fun_name}),
+   gen_sequence_number]
 end
 
 def add_dist_handler_pre(_state, _args), do: true
 
-def add_dist_handler(name, :no_host, node, mod, fun, seq) do
+def add_dist_handler(name, :no_host, node, {mod, fun}, seq) do
   :ejabberd_hooks.add_dist_handler(name, mk_node(node), mod, fun, seq)
 end
-def add_dist_handler(name, host, node, mod, fun, seq) do
+def add_dist_handler(name, host, node, {mod, fun}, seq) do
   :ejabberd_hooks.add_dist_handler(name, host, mk_node(node), mod, fun, seq)
 end
 
-def add_dist_handler_callouts(_state, [name, host, node, mod, fun, seq]) do
-  case check_fun(name, {mod, fun}) do
-    :ok -> call do_add_handler(name, %{host: mk_host(host), node: node, fun: {mod, fun}}, seq)
+def add_dist_handler_callouts(_state, [name, host, node, fun, seq]) do
+  case check_fun(name, fun) do
+    :ok -> call do_add_handler(name, %{host: mk_host(host), node: node, fun: fun}, seq)
     err -> {:return, err}
   end
 end
