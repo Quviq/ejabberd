@@ -103,7 +103,7 @@ add_handler(Hook, Module, Function, Seq) ->
 add_handler(Hook, Host, Module, Function, Seq) ->
     add_handler(Hook, Host, Module, Function, Seq, record).
 
-add_handler(Hook, Host, Module, Function, Seq, CallType) -> 
+add_handler(Hook, Host, Module, Function, Seq, CallType) ->
     gen_server:call(ejabberd_hooks, {add, Hook, Host, Module, Function, Seq, CallType}).
 
 -spec add(atom(), fun(), number()) -> ok.
@@ -186,7 +186,7 @@ delete_dist(Hook, Node, Module, Function, Seq) ->
 delete_dist(Hook, Host, Node, Module, Function, Seq) ->
     gen_server:call(ejabberd_hooks, {delete, Hook, Host, Node, Module, Function, Seq}).
 
--spec delete_all_hooks() -> true. 
+-spec delete_all_hooks() -> true.
 
 %% @doc Primarily for testing / instrumentation
 delete_all_hooks() ->
@@ -199,7 +199,7 @@ get_handlers(Hookname) ->
     get_handlers(Hookname, global).
 
 -spec get_handlers(atom(), binary() | global) -> [local_hook() | distributed_hook()].
-%% @doc Returns currently set handlers for hook name 
+%% @doc Returns currently set handlers for hook name
 get_handlers(Hookname, Host) ->
     gen_server:call(ejabberd_hooks, {get_handlers, Hookname, Host}).
 
@@ -287,7 +287,7 @@ handle_call({delete, Hook, Host, Node, Module, Function, Seq}, _From, State) ->
 
 handle_call({remove_module_handlers, Hook, Host, Module}, _From, State) ->
     Reply = remove_module_handler(Hook, Host, Module),
-    {reply, Reply, State};    
+    {reply, Reply, State};
 
 handle_call({get_handlers, Hook, Host}, _From, State) ->
     Reply = case ets:lookup(hooks, {Hook, Host}) of
@@ -368,7 +368,7 @@ handle_add(HookName, Host, HookTuple) ->
                     end
             end
     end.
-    
+
 -spec do_handle_add(atom(), atom(), local_hook() | distributed_hook()) -> ok.
 %% in-memory storage operation: Handle adding hook in ETS table
 do_handle_add(Hook, Host, El) ->
@@ -400,12 +400,12 @@ handle_delete(Hook, Host, Seq, Node, Module, Function) ->
                                  _ -> true
                              end
                      end,
-            NewLs = lists:filter(Filter, Ls), 
+            NewLs = lists:filter(Filter, Ls),
             ets:insert(hooks, {{Hook, Host}, NewLs}),
             ok;
         [] ->
             ok
-    end. 
+    end.
 
 %% Drop all handlers for given module
 remove_module_handler(Hook, Host, Module) ->
@@ -418,11 +418,11 @@ remove_module_handler(Hook, Host, Module) ->
                                  _ -> true
                              end
                      end,
-            NewLs = lists:filter(Filter, Ls), 
+            NewLs = lists:filter(Filter, Ls),
             ets:insert(hooks, {{Hook, Host}, NewLs}),
             ok;
         [] -> ok
-    end. 
+    end.
 
 %%----------------------------------------------------------------------
 %% Func: handle_cast/2
@@ -567,7 +567,7 @@ format_args(Hook, CallType, Args) ->
         false -> Args;
         true  -> do_format_args(Hook, CallType, Args)
     end.
-    
+
 do_format_args(Hook, args, Args) ->
     case Args of
         A when is_list(A)  -> Args;
