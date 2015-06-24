@@ -18,10 +18,6 @@ require Record
 #   ejabberd runs, not on the node where the function is supposed to run. It's
 #   conceivable that you might have different code on different nodes.
 
-# - The behaviours of 'run' and 'run_fold' are inconsistent on empty argument
-#   lists and 'record' call type. In the case of 'run' no arguments are passed,
-#   but for 'run_fold' an empty record is passed.
-
 # - Removing a handler at a remote node (with delete_dist) also removes it
 #   locally.
 
@@ -392,29 +388,18 @@ def run_fold_callouts(state, [name, host, val, args]) do
       (_, {:stop, val}) -> {:stop, val}
       ({_, args}, res)  -> {res, args} end,
     fn({val, _}) -> val end,
-    fn({val, args}) ->
-      case {is_core_hook(name), is_list(args)} do
-        {_, false} -> [val, args]
-        {false, _} -> [val | args]
-        {true,  _} -> [val, :erlang.list_to_tuple([name|args])]
-      end end,
+    fn({val, args}) -> [val | make_record(name, args)] end,
     {val, args}, get_handlers(state, name, mk_host(host), arity))
 end
 
 def args_length(hookname, args) do
   case is_core_hook(hookname) do
     false when is_list(args) -> length(args)
-    _ ->
-      case args do
-        # We do not generate empty record when passing no parameter
-        [] -> 0
-        _  -> 1
-      end
+    _                        -> 1
   end
 end
 
-# We do not generate empty record when passing no parameter
-def make_record(_, []), do: []
+# Handlers for core hooks are called with record arguments.
 def make_record(name, args) when is_list(args) do
   case is_core_hook(name) do
     true  -> [:erlang.list_to_tuple [name|args]]
