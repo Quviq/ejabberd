@@ -581,31 +581,11 @@ do_format_args(Hook, args, Args) ->
 do_format_args(Hook, record, Args) ->
     case Args of
         R when is_tuple(R) -> [R];
-        [] -> []; %% Do not convert empty parameter list to "empty record tuple"
         A when is_list(A)  -> [list_to_tuple([Hook | Args])]
     end.
 
 format_args(Hook, CallType, Val, Args) ->
-    case is_core_hook(Hook) of
-        %% Do not change "custom" hooks type (Can be not yet migrated hooks)
-        false -> [Val|Args];
-        true  -> do_format_args(Hook, CallType, Val, Args)
-    end.
-
-do_format_args(Hook, args, Val, Args) ->
-    case Args of
-        A when is_list(A)  -> [Val | Args];
-        R when is_tuple(R) ->
-            case tuple_to_list(R) of
-                [Hook|RecordArgs] -> [Val|RecordArgs];
-                _ -> [Val | Args ]
-            end
-    end;
-do_format_args(Hook, record, Val, Args) ->
-    case Args of
-        R when is_tuple(R) -> [Val, R];
-        A when is_list(A)  -> [Val, list_to_tuple([Hook | Args])]
-    end.
+    [Val | format_args(Hook, CallType, Args)].
 
 
 %% Perform hooks calls (actually)
