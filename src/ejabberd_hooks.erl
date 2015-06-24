@@ -466,43 +466,43 @@ run1([], _Hook, _Args) ->
 run1([{_Seq, Node, Module, Function, CallType} | Ls], Hook, Args) ->
     case remote_apply(Node, Module, Function, format_args(Hook, CallType, Args)) of
 	timeout ->
-            io:format("Timeout on RPC to ~p~nrunning hook: ~p",
-		       [Node, {Hook, Args}]),
+            %% io:format("Timeout on RPC to ~p~nrunning hook: ~p",
+            %% 		       [Node, {Hook, Args}]),
 	    ?ERROR_MSG("Timeout on RPC to ~p~nrunning hook: ~p",
 		       [Node, {Hook, Args}]),
 	    run1(Ls, Hook, Args);
 	{badrpc, Reason} ->
-            io:format("Bad RPC error to ~p: ~p~nrunning hook: ~p",
-		       [Node, Reason, {Hook, Args}]),
+            %% io:format("Bad RPC error to ~p: ~p~nrunning hook: ~p",
+            %% 		       [Node, Reason, {Hook, Args}]),
 	    ?ERROR_MSG("Bad RPC error to ~p: ~p~nrunning hook: ~p",
 		       [Node, Reason, {Hook, Args}]),
 	    run1(Ls, Hook, Args);
 	stop ->
-            io:format("~nThe process ~p in node ~p ran a hook in node ~p.~n"
-		      "Stop.", [self(), node(), Node]), % debug code
+            %% io:format("~nThe process ~p in node ~p ran a hook in node ~p.~n"
+            %% 		      "Stop.", [self(), node(), Node]), % debug code
 	    ?INFO_MSG("~nThe process ~p in node ~p ran a hook in node ~p.~n"
 		      "Stop.", [self(), node(), Node]), % debug code
 	    ok;
 	Res ->
-            io:format("~nThe process ~p in node ~p ran a hook in node ~p.~n"
-		      "The response is: ~n~p", [self(), node(), Node, Res]), % debug code
+            %% io:format("~nThe process ~p in node ~p ran a hook in node ~p.~n"
+            %% 		      "The response is: ~n~p", [self(), node(), Node, Res]), % debug code
 	    ?INFO_MSG("~nThe process ~p in node ~p ran a hook in node ~p.~n"
 		      "The response is: ~n~p", [self(), node(), Node, Res]), % debug code
 	    run1(Ls, Hook, Args)
     end;
 run1([{_Seq, Module, Function, CallType} | Ls], Hook, Args) ->
-    io:format("MREMOND1\n",[]),
+    %% io:format("MREMOND1\n",[]),
     Res = safe_apply(Module, Function, format_args(Hook, CallType, Args)),
     case Res of
 	{'EXIT', Reason} ->
-            io:format("~p~nrunning hook: ~p", [Reason, {Hook, Args}]),
+            %% io:format("~p~nrunning hook: ~p", [Reason, {Hook, Args}]),
 	    ?ERROR_MSG("~p~nrunning hook: ~p", [Reason, {Hook, Args}]),
 	    run1(Ls, Hook, Args);
 	stop ->
-            io:format("stop", []),
+            %% io:format("stop", []),
 	    ok;
 	_ ->
-            io:format("run 1 loop", []),
+            %% io:format("run 1 loop", []),
 	    run1(Ls, Hook, Args)
     end.
 
