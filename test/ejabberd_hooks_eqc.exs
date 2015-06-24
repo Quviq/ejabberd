@@ -18,9 +18,6 @@ require Record
 #   ejabberd runs, not on the node where the function is supposed to run. It's
 #   conceivable that you might have different code on different nodes.
 
-# - Removing a handler at a remote node (with delete_dist) also removes it
-#   locally.
-
 # -- Generators -------------------------------------------------------------
 
 Record.defrecord :hook, Record.extract(:hook, from_lib: "ejabberd/include/ejabberd_hooks.hrl")
@@ -115,12 +112,15 @@ end
 def mk_node(name),       do: mk_node(name, this_host)
 def mk_node(name, host), do: :erlang.list_to_atom(:lists.concat([name, '@', host]))
 
-# Compare two handlers for the purpose of delete. This should simply be
-# h1 == h2, but it gets messy due to the following bug:
-# BUG: delete_dist removes local handlers in addition to the remote handler.
-defp compare_handler(h1=%{node: _}, h2=%{node: _}), do: h1 == h2
-defp compare_handler(%{node: _}, _), do: false
-defp compare_handler(h1, h2),        do: h1 == Map.delete(h2, :node)
+# Compare two handlers for the purpose of delete. Slightly tricky since add and
+# add_dist with the current node results in handlers that sort differently, but
+# otherwise behave the same way. Thus we can't use the same representation.
+defp compare_handler(h1, h2) do
+  norm = fn(h=%{node: _}) -> h
+           (h)            -> Map.put(h, :node, this_node)
+         end
+  norm.(h1) == norm.(h2)
+end
 
 # -- State ------------------------------------------------------------------
 
@@ -356,7 +356,7 @@ def run(name, host, params),     do: :ejabberd_hooks.run(name, host, params)
 def run_callouts(state, [name, host, args]) do
   call run_handlers(name,
     fn(_, :stop) -> {:stop, :ok}
-    (args, _)  -> args end,
+      (args, _)  -> args end,
     fn(_) -> :ok end,
     fn(args) -> make_record(name, args) end,
     args, get_handlers(state, name, mk_host(host), args_length(name, args)))
